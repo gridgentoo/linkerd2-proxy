@@ -8,14 +8,21 @@ pub enum MatchPath {
     Regex(Regex),
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum PathMatch {
+    Exact(usize),
+    Regex(usize),
+    Prefix(usize),
+}
+
 // === impl MatchPath ===
 
 impl MatchPath {
-    pub fn match_length(&self, uri: &Uri) -> Option<usize> {
+    pub(crate) fn match_length(&self, uri: &Uri) -> Option<PathMatch> {
         match self {
             Self::Exact(s) => {
                 if s == uri.path() {
-                    return Some(s.len());
+                    return Some(PathMatch::Exact(s.len()));
                 }
             }
 
@@ -23,7 +30,7 @@ impl MatchPath {
                 if let Some(m) = re.find(uri.path()) {
                     let len = uri.path().len();
                     if m.start() == 0 && m.end() == len {
-                        return Some(len);
+                        return Some(PathMatch::Regex(len));
                     }
                 }
             }
@@ -32,11 +39,8 @@ impl MatchPath {
                 let path = uri.path();
                 if path.starts_with(prefix) {
                     let rest = &path[prefix.len()..];
-                    if rest.is_empty() {
-                        return Some(prefix.len());
-                    }
-                    if !prefix.ends_with('/') && rest.starts_with('/') {
-                        return Some(prefix.len() + 1);
+                    if rest.is_empty() || (!prefix.ends_with('/') && rest.starts_with('/')) {
+                        return Some(PathMatch::Prefix(prefix.len()));
                     }
                 }
             }
@@ -67,16 +71,40 @@ impl std::cmp::PartialEq for MatchPath {
     }
 }
 
+// === impl PathMatch ===
+
+impl PathMatch {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Exact(len) => *len,
+            Self::Regex(len) => *len,
+            Self::Prefix(len) => *len,
+        }
+    }
+}
+
+impl std::cmp::PartialOrd for PathMatch {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::cmp::Ord for PathMatch {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.len().cmp(&other.len())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::MatchPath;
+    use super::*;
 
     #[test]
     fn path_exact() {
-        let m = MatchPath::Exact("/foo/bar".to_string());
+        let m = MatchPath::Exact("/foo/bar".into());
         assert_eq!(
             m.match_length(&"/foo/bar".parse().unwrap()),
-            Some("/foo/bar".len())
+            Some(PathMatch::Exact("/foo/bar".len()))
         );
         assert_eq!(m.match_length(&"/foo".parse().unwrap()), None);
         assert_eq!(m.match_length(&"/foo/bah".parse().unwrap()), None);
@@ -86,14 +114,17 @@ mod tests {
     #[test]
     fn path_prefix() {
         let m = MatchPath::Prefix("/foo".to_string());
-        assert_eq!(m.match_length(&"/foo".parse().unwrap()), Some("/foo".len()));
+        assert_eq!(
+            m.match_length(&"/foo".parse().unwrap()),
+            Some(PathMatch::Prefix("/foo".len()))
+        );
         assert_eq!(
             m.match_length(&"/foo/bar".parse().unwrap()),
-            Some("/foo/".len())
+            Some(PathMatch::Prefix("/foo".len()))
         );
         assert_eq!(
             m.match_length(&"/foo/bar/qux".parse().unwrap()),
-            Some("/foo/".len())
+            Some(PathMatch::Prefix("/foo".len()))
         );
         assert_eq!(m.match_length(&"/foobar".parse().unwrap()), None);
     }
@@ -103,11 +134,11 @@ mod tests {
         let m = MatchPath::Regex(r#"/foo/\d+"#.parse().unwrap());
         assert_eq!(
             m.match_length(&"/foo/4".parse().unwrap()),
-            Some("/foo/4".len())
+            Some(PathMatch::Regex("/foo/4".len()))
         );
         assert_eq!(
             m.match_length(&"/foo/4321".parse().unwrap()),
-            Some("/foo/4321".len())
+            Some(PathMatch::Regex("/foo/4321".len()))
         );
         assert_eq!(m.match_length(&"/bar/foo/4".parse().unwrap()), None);
         assert_eq!(m.match_length(&"/foo/4abc".parse().unwrap()), None);

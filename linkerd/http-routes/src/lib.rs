@@ -1,11 +1,12 @@
 pub mod filter;
 pub mod r#match;
+pub mod service;
 
 pub use self::{
     filter::Filter,
     r#match::{MatchHost, MatchRequest},
 };
-use r#match::{HostMatch, RequestMatch};
+use r#match::{HostMatch, PathMatch, RequestMatch};
 use std::collections::BTreeMap;
 
 #[cfg(feature = "inbound")]
@@ -71,7 +72,10 @@ pub struct RouteMatch {
 
 #[cfg(feature = "inbound")]
 impl InboundRoutes {
-    pub fn find_route<B>(&self, req: &http::Request<B>) -> Option<(&InboundRoute, &InboundRule)> {
+    pub(crate) fn find_route<B>(
+        &self,
+        req: &http::Request<B>,
+    ) -> Option<(&InboundRoute, &InboundRule, RouteMatch)> {
         self.0
             .iter()
             .filter_map(|rt| rt.find_rule(req).map(|(rl, m)| ((rt, rl), m)))
@@ -79,7 +83,7 @@ impl InboundRoutes {
             //   max_by(|(_, m0), (_, m)| m0.cmp(m))
             // but we want to ensure that the first match wins.
             .reduce(|(r0, m0), (r, m)| if m0 < m { (r, m) } else { (r0, m0) })
-            .map(|(r, _)| r)
+            .map(|((rt, rl), m)| (rt, rl, m))
     }
 }
 
@@ -87,7 +91,10 @@ impl InboundRoutes {
 
 #[cfg(feature = "inbound")]
 impl InboundRoute {
-    pub fn find_rule<B>(&self, req: &http::Request<B>) -> Option<(&InboundRule, RouteMatch)> {
+    pub(crate) fn find_rule<B>(
+        &self,
+        req: &http::Request<B>,
+    ) -> Option<(&InboundRule, RouteMatch)> {
         RouteMatch::find(req, &*self.hosts, self.rules.iter().map(|r| &*r.matches))
             .map(|(idx, rm)| (&self.rules[idx], rm))
     }
@@ -219,7 +226,7 @@ mod tests {
             .uri("http://foo.example.com/foo")
             .body(())
             .unwrap();
-        let (_, rule) = rts.find_route(&req).expect("must match");
+        let (_, rule, _) = rts.find_route(&req).expect("must match");
         assert!(
             rule.labels.contains_key("expected"),
             "incorrect rule matched"
@@ -259,7 +266,7 @@ mod tests {
             .uri("http://foo.example.com/foo/bar")
             .body(())
             .unwrap();
-        let (_, rule) = rts.find_route(&req).expect("must match");
+        let (_, rule, _) = rts.find_route(&req).expect("must match");
         assert!(
             rule.labels.contains_key("expected"),
             "incorrect rule matched"
@@ -310,7 +317,7 @@ mod tests {
             .header("x-biz", "qyx")
             .body(())
             .unwrap();
-        let (_, rule) = rts.find_route(&req).expect("must match");
+        let (_, rule, _) = rts.find_route(&req).expect("must match");
         assert!(
             rule.labels.contains_key("expected"),
             "incorrect rule matched"
@@ -342,7 +349,7 @@ mod tests {
             },
         ]);
 
-        let (_, rule) = rts
+        let (_, rule, _) = rts
             .find_route(&http::Request::builder().body(()).unwrap())
             .expect("must match");
         assert!(

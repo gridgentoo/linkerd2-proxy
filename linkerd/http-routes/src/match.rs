@@ -3,13 +3,13 @@ mod host;
 mod path;
 mod query_param;
 
-pub(crate) use self::host::HostMatch;
 pub use self::{
     header::MatchHeader,
     host::{InvalidHost, MatchHost},
     path::MatchPath,
     query_param::MatchQueryParam,
 };
+pub(crate) use self::{host::HostMatch, path::PathMatch};
 
 #[derive(Clone, Debug, Default, Hash, PartialEq)]
 pub struct MatchRequest {
@@ -21,7 +21,7 @@ pub struct MatchRequest {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct RequestMatch {
-    path_match_length: usize,
+    path_match: PathMatch,
     headers: usize,
     query_params: usize,
     method: bool,
@@ -41,7 +41,7 @@ impl MatchRequest {
         }
 
         if let Some(path) = &self.path {
-            summary.path_match_length = path.match_length(req.uri())?;
+            summary.path_match = path.match_length(req.uri())?;
         }
 
         if !self.headers.iter().all(|h| h.is_match(req.headers())) {
@@ -65,7 +65,7 @@ impl Default for RequestMatch {
         // > If no matches are specified, the default is a prefix path match on
         // > "/", which has the effect of matching every HTTP request.
         Self {
-            path_match_length: 1,
+            path_match: PathMatch::Prefix("/".len()),
             headers: 0,
             query_params: 0,
             method: false,
@@ -74,6 +74,12 @@ impl Default for RequestMatch {
 }
 
 // === impl RequestMatch ===
+
+impl RequestMatch {
+    pub(crate) fn path(&self) -> &PathMatch {
+        &self.path_match
+    }
+}
 
 impl std::cmp::PartialOrd for RequestMatch {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -84,7 +90,7 @@ impl std::cmp::PartialOrd for RequestMatch {
 impl std::cmp::Ord for RequestMatch {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
-        match self.path_match_length.cmp(&other.path_match_length) {
+        match self.path_match.cmp(&other.path_match) {
             Ordering::Equal => match self.headers.cmp(&other.headers) {
                 Ordering::Equal => match self.query_params.cmp(&other.query_params) {
                     Ordering::Equal => self.method.cmp(&other.method),
@@ -216,7 +222,7 @@ mod tests {
         assert_eq!(
             m.summarize_match(&req),
             Some(RequestMatch {
-                path_match_length: "/foo/bar".len(),
+                path_match: PathMatch::Exact("/foo/bar".len()),
                 ..Default::default()
             })
         );
@@ -242,7 +248,7 @@ mod tests {
         assert_eq!(
             m.summarize_match(&req),
             Some(RequestMatch {
-                path_match_length: "/foo/bar".len(),
+                path_match: PathMatch::Exact("/foo/bar".len()),
                 headers: 1,
                 query_params: 1,
                 method: true,

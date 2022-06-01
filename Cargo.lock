@@ -1144,10 +1144,13 @@ dependencies = [
 name = "linkerd-http-routes"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "http",
+ "linkerd-stack",
  "maplit",
  "regex",
  "thiserror",
+ "tokio",
  "url",
 ]
 

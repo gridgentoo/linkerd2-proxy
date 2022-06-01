@@ -77,6 +77,9 @@ default: fetch check-fmt lint test build
 fetch:
     {{ cargo }} fetch --locked
 
+fmt:
+    {{ cargo }} fmt
+
 # Fails if the code does not match the expected format (via rustfmt).
 check-fmt:
     {{ cargo }} fmt -- --check
@@ -96,26 +99,26 @@ shellcheck:
     echo shellcheck $files
     shellcheck $files
 
-check *flags:
+check *flags: fmt
     {{ cargo }} check --workspace --all-targets --frozen {{ flags }} {{ _fmt }}
 
-check-crate crate *flags:
+check-crate crate *flags: fmt
     {{ cargo }} check --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-clippy *flags:
+clippy *flags: fmt
     {{ cargo }} clippy --workspace --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-clippy-crate crate *flags:
+clippy-crate crate *flags: fmt
     {{ cargo }} clippy --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-doc *flags:
+doc *flags: fmt
     {{ cargo }} doc --no-deps --workspace --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-doc-crate crate *flags:
+doc-crate crate *flags: fmt
     {{ cargo }} doc --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
 # Run all tests
-test *flags:
+test *flags: fmt
     #!/usr/bin/env bash
     if command -v cargo-nextest >/dev/null 2>&1; then
         {{ cargo }} nextest run --workspace --frozen {{ _features }} \
@@ -127,7 +130,7 @@ test *flags:
             {{ flags }}
     fi
 
-test-crate crate *flags:
+test-crate crate *flags: fmt
     #!/usr/bin/env bash
     if command -v cargo-nextest >/dev/null 2>&1; then
         {{ cargo }} nextest run --package={{ crate }} --frozen {{ _features }} \
@@ -141,7 +144,7 @@ test-crate crate *flags:
 
 
 # Build the proxy
-build:
+build: fmt
     {{ cargo }} build --frozen --package=linkerd2-proxy --target={{ cargo_target }} \
         {{ if build_type == "release" { "--release" } else { "" } }} \
         {{ _features }} {{ _fmt }}
