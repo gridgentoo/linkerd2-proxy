@@ -55,23 +55,26 @@ where
     #[inline]
     fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
         let routes = self.watch.borrow();
-        let (_route, rule, rtmatch) = match routes.find_route(&req) {
+        let rt = match routes.find_route(&req) {
             Some(r) => r,
             None => return Box::pin(futures::future::err(Error::NoRoute)),
         };
-        // TODO apply route authorization
-        for f in &rule.filters {
+
+        // TODO authorization
+
+        for f in &rt.rule.filters {
             match f {
-                Filter::ModifyRequestHeader(f) => f.apply(req.headers_mut()),
-                Filter::RedirectRequest(f) => {
-                    return Box::pin(match f.apply(req.uri(), &rtmatch) {
+                Filter::ModifyRequestHeader(mrh) => mrh.apply(req.headers_mut()),
+                Filter::RedirectRequest(rr) => {
+                    return Box::pin(match rr.apply(req.uri(), &rt.r#match) {
                         Ok(redirect) => futures::future::err(Error::Redirect(redirect)),
                         Err(invalid) => futures::future::err(invalid.into()),
                     })
                 }
             }
         }
-        // TODO labels
+
+        req.extensions_mut().insert(rt.route.labels.clone());
         Box::pin(self.inner.call(req).map_err(Error::Inner))
     }
 }

@@ -7,25 +7,7 @@ pub enum Filter {
     RedirectRequest(RedirectRequest),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum InvalidRedirect {
-    #[error("redirects may only replace the path prefix when a path prefix match applied")]
-    InvalidReplacePrefix,
-
-    #[error("redirect produced an invalid location: {0}")]
-    InvalidLocation(#[from] http::Error),
-
-    #[error("no authority to redirect to")]
-    MissingAuthority,
-}
-
-#[derive(Clone, Debug)]
-pub struct Redirection {
-    pub status: http::StatusCode,
-    pub location: http::Uri,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq)]
 pub struct ModifyRequestHeader {
     pub add: Vec<(HeaderName, HeaderValue)>,
     pub set: Vec<(HeaderName, HeaderValue)>,
@@ -44,6 +26,24 @@ pub struct RedirectRequest {
 pub enum PathModifier {
     ReplaceFullPath(String),
     ReplacePrefixMatch(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidRedirect {
+    #[error("redirects may only replace the path prefix when a path prefix match applied")]
+    InvalidReplacePrefix,
+
+    #[error("redirect produced an invalid location: {0}")]
+    InvalidLocation(#[from] http::Error),
+
+    #[error("no authority to redirect to")]
+    MissingAuthority,
+}
+
+#[derive(Clone, Debug)]
+pub struct Redirection {
+    pub status: http::StatusCode,
+    pub location: http::Uri,
 }
 
 // === impl ModifyRequestHeader ===
@@ -86,7 +86,7 @@ impl RedirectRequest {
                 match &self.path {
                     None => path.to_string(),
                     Some(PathModifier::ReplaceFullPath(p)) => p.clone(),
-                    Some(PathModifier::ReplacePrefixMatch(new_pfx)) => match rm.r#match.path() {
+                    Some(PathModifier::ReplacePrefixMatch(new_pfx)) => match rm.rule.path() {
                         PathMatch::Prefix(pfx_len) if *pfx_len <= path.len() => {
                             let (_, rest) = path.split_at(*pfx_len);
                             format!("{}{}", new_pfx, rest)

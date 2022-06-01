@@ -2,12 +2,12 @@ pub mod filter;
 pub mod r#match;
 pub mod service;
 
+use self::r#match::{HostMatch, PathMatch, RequestMatch};
 pub use self::{
     filter::Filter,
     r#match::{MatchHost, MatchRequest},
 };
-use r#match::{HostMatch, PathMatch, RequestMatch};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "inbound")]
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -22,7 +22,7 @@ pub struct OutboundRoutes(pub Vec<OutboundRoute>);
 pub struct InboundRoute {
     pub hosts: Vec<MatchHost>,
     pub rules: Vec<InboundRule>,
-    pub labels: BTreeMap<String, String>,
+    pub labels: RouteLabels,
     // TODO Authorizations (inbound)
 }
 
@@ -31,7 +31,6 @@ pub struct InboundRoute {
 pub struct InboundRule {
     pub matches: Vec<MatchRequest>,
     pub filters: Vec<Filter>,
-    pub labels: BTreeMap<String, String>,
 }
 
 #[cfg(feature = "outbound")]
@@ -39,8 +38,11 @@ pub struct InboundRule {
 pub struct OutboundRoute {
     pub hosts: Vec<MatchHost>,
     pub rules: Vec<OutboundRule>,
-    pub labels: BTreeMap<String, String>,
+    pub labels: RouteLabels,
 }
+
+#[derive(Clone, Debug, Default, Hash, PartialEq)]
+pub struct RouteLabels(Arc<BTreeMap<String, String>>);
 
 #[cfg(feature = "outbound")]
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -48,7 +50,6 @@ pub struct OutboundRule {
     pub matches: Vec<MatchRequest>,
     pub filters: Vec<Filter>,
     pub backends: Vec<Backend>,
-    pub labels: BTreeMap<String, String>,
 }
 
 #[cfg(feature = "outbound")]
@@ -62,28 +63,39 @@ pub struct Backend {
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub struct BackendCoordinate(String);
 
+#[cfg(feature = "inbound")]
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct InboundRouteMatch<'r> {
+    r#match: RouteMatch,
+    route: &'r InboundRoute,
+    rule: &'r InboundRule,
+}
+
+#[cfg(feature = "outbound")]
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct OutboundRouteMatch<'r> {
+    r#match: RouteMatch,
+    route: &'r OutboundRoute,
+    rule: &'r OutboundRule,
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct RouteMatch {
-    host_match: Option<HostMatch>,
-    r#match: RequestMatch,
+struct RouteMatch {
+    host: Option<HostMatch>,
+    rule: RequestMatch,
 }
 
 // === impl InboundRoutes ===
 
 #[cfg(feature = "inbound")]
 impl InboundRoutes {
-    pub(crate) fn find_route<B>(
-        &self,
-        req: &http::Request<B>,
-    ) -> Option<(&InboundRoute, &InboundRule, RouteMatch)> {
+    pub(crate) fn find_route<B>(&self, req: &http::Request<B>) -> Option<InboundRouteMatch<'_>> {
         self.0
             .iter()
-            .filter_map(|rt| rt.find_rule(req).map(|(rl, m)| ((rt, rl), m)))
-            // This is roughly equivalent to
-            //   max_by(|(_, m0), (_, m)| m0.cmp(m))
-            // but we want to ensure that the first match wins.
-            .reduce(|(r0, m0), (r, m)| if m0 < m { (r, m) } else { (r0, m0) })
-            .map(|((rt, rl), m)| (rt, rl, m))
+            .filter_map(|rt| rt.find_rule(req))
+            // This is roughly equivalent to `max_by(...)` but we want to ensure
+            // that the first match wins.
+            .reduce(|l, r| if l.r#match < r.r#match { r } else { l })
     }
 }
 
@@ -91,12 +103,14 @@ impl InboundRoutes {
 
 #[cfg(feature = "inbound")]
 impl InboundRoute {
-    pub(crate) fn find_rule<B>(
-        &self,
-        req: &http::Request<B>,
-    ) -> Option<(&InboundRule, RouteMatch)> {
-        RouteMatch::find(req, &*self.hosts, self.rules.iter().map(|r| &*r.matches))
-            .map(|(idx, rm)| (&self.rules[idx], rm))
+    pub(crate) fn find_rule<B>(&self, req: &http::Request<B>) -> Option<InboundRouteMatch<'_>> {
+        RouteMatch::find(req, &*self.hosts, self.rules.iter().map(|r| &*r.matches)).map(
+            |(idx, r#match)| InboundRouteMatch {
+                r#match,
+                route: self,
+                rule: &self.rules[idx],
+            },
+        )
     }
 }
 
@@ -104,15 +118,13 @@ impl InboundRoute {
 
 #[cfg(feature = "outbound")]
 impl OutboundRoutes {
-    pub fn find_route<B>(&self, req: &http::Request<B>) -> Option<(&OutboundRoute, &OutboundRule)> {
+    pub fn find_route<B>(&self, req: &http::Request<B>) -> Option<OutboundRouteMatch<'_>> {
         self.0
             .iter()
-            .filter_map(|rt| rt.find_rule(req).map(|(rl, m)| ((rt, rl), m)))
-            // This is roughly equivalent to
-            //   max_by(|(_, m0), (_, m)| m0.cmp(m))
-            // but we want to ensure that the first match wins.
-            .reduce(|(r0, m0), (r, m)| if m0 < m { (r, m) } else { (r0, m0) })
-            .map(|(r, _)| r)
+            .filter_map(|rt| rt.find_rule(req))
+            // This is roughly equivalent to `max_by(...)` but we want to ensure
+            // that the first match wins.
+            .reduce(|l, r| if l.r#match < r.r#match { r } else { l })
     }
 }
 
@@ -120,13 +132,18 @@ impl OutboundRoutes {
 
 #[cfg(feature = "outbound")]
 impl OutboundRoute {
-    pub fn find_rule<B>(&self, req: &http::Request<B>) -> Option<(&OutboundRule, RouteMatch)> {
-        RouteMatch::find(req, &*self.hosts, self.rules.iter().map(|r| &*r.matches))
-            .map(|(idx, rm)| (&self.rules[idx], rm))
+    pub fn find_rule<B>(&self, req: &http::Request<B>) -> Option<OutboundRouteMatch<'_>> {
+        RouteMatch::find(req, &*self.hosts, self.rules.iter().map(|r| &*r.matches)).map(
+            |(idx, r#match)| OutboundRouteMatch {
+                r#match,
+                route: self,
+                rule: &self.rules[idx],
+            },
+        )
     }
 }
 
-// === impl RouteMatch ===
+// === impl RuleMatch ===
 
 impl RouteMatch {
     fn find<'r, B>(
@@ -134,7 +151,7 @@ impl RouteMatch {
         hosts: &[MatchHost],
         rules: impl Iterator<Item = &'r [MatchRequest]>,
     ) -> Option<(usize, Self)> {
-        let host_match = if hosts.is_empty() {
+        let host = if hosts.is_empty() {
             None
         } else {
             let uri = req.uri();
@@ -150,23 +167,15 @@ impl RouteMatch {
                 if matches.is_empty() {
                     return Some((idx, RequestMatch::default()));
                 }
-                matches
-                    .iter()
-                    .filter_map(|m| m.summarize_match(req))
-                    .max()
-                    .map(|s| (idx, s))
+                // The order of request matches doesn't matter but we need to
+                // find the best match to compare against other rules/routes.
+                let summaries = matches.iter().filter_map(|m| m.summarize_match(req));
+                summaries.max().map(|s| (idx, s))
             })
-            // This is roughly equivalent to
-            //   max_by(|(_, m0), (_, m)| m0.cmp(m))
-            // but we want to ensure that the first match wins.
-            .reduce(|(i0, m0), (i, m)| if m0 < m { (i, m) } else { (i0, m0) })
-            .map(|(i, s)| {
-                let m = Self {
-                    host_match,
-                    r#match: s,
-                };
-                (i, m)
-            })
+            // This is roughly equivalent to `max_by(...)` but we want to ensure
+            // that the first match wins.
+            .reduce(|(i0, r0), (i, r)| if r0 < r { (i, r) } else { (i0, r0) })
+            .map(move |(i, rule)| (i, RouteMatch { host, rule }))
     }
 }
 
@@ -179,10 +188,18 @@ impl std::cmp::PartialOrd for RouteMatch {
 impl std::cmp::Ord for RouteMatch {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
-        match self.host_match.cmp(&other.host_match) {
-            Ordering::Equal => self.r#match.cmp(&other.r#match),
+        match self.host.cmp(&other.host) {
+            Ordering::Equal => self.rule.cmp(&other.rule),
             ord => ord,
         }
+    }
+}
+
+// === impl RouteLabels ===
+
+impl From<BTreeMap<String, String>> for RouteLabels {
+    fn from(labels: BTreeMap<String, String>) -> Self {
+        RouteLabels(Arc::new(labels))
     }
 }
 
@@ -213,11 +230,11 @@ mod tests {
                         path: Some(MatchPath::Exact("/foo".to_string())),
                         ..MatchRequest::default()
                     }],
-                    labels: maplit::btreemap! {
-                        "expected".to_string() => "".to_string(),
-                    },
                     ..InboundRule::default()
                 }],
+                labels: RouteLabels::from(maplit::btreemap! {
+                    "expected".to_string() => "".to_string(),
+                }),
                 ..InboundRoute::default()
             },
         ]);
@@ -226,9 +243,9 @@ mod tests {
             .uri("http://foo.example.com/foo")
             .body(())
             .unwrap();
-        let (_, rule, _) = rts.find_route(&req).expect("must match");
+        let m = rts.find_route(&req).expect("must match");
         assert!(
-            rule.labels.contains_key("expected"),
+            m.route.labels.0.contains_key("expected"),
             "incorrect rule matched"
         );
     }
@@ -253,11 +270,11 @@ mod tests {
                         path: Some(MatchPath::Exact("/foo/bar".to_string())),
                         ..MatchRequest::default()
                     }],
-                    labels: maplit::btreemap! {
-                        "expected".to_string() => "".to_string(),
-                    },
                     ..InboundRule::default()
                 }],
+                labels: RouteLabels::from(maplit::btreemap! {
+                    "expected".to_string() => "".to_string(),
+                }),
                 ..InboundRoute::default()
             },
         ]);
@@ -266,9 +283,9 @@ mod tests {
             .uri("http://foo.example.com/foo/bar")
             .body(())
             .unwrap();
-        let (_, rule, _) = rts.find_route(&req).expect("must match");
+        let m = rts.find_route(&req).expect("must match");
         assert!(
-            rule.labels.contains_key("expected"),
+            m.route.labels.0.contains_key("expected"),
             "incorrect rule matched"
         );
     }
@@ -301,11 +318,11 @@ mod tests {
                         ],
                         ..MatchRequest::default()
                     }],
-                    labels: maplit::btreemap! {
-                        "expected".to_string() => "".to_string(),
-                    },
                     ..InboundRule::default()
                 }],
+                labels: RouteLabels::from(maplit::btreemap! {
+                    "expected".to_string() => "".to_string(),
+                }),
                 ..InboundRoute::default()
             },
         ]);
@@ -317,9 +334,9 @@ mod tests {
             .header("x-biz", "qyx")
             .body(())
             .unwrap();
-        let (_, rule, _) = rts.find_route(&req).expect("must match");
+        let m = rts.find_route(&req).expect("must match");
         assert!(
-            rule.labels.contains_key("expected"),
+            m.route.labels.0.contains_key("expected"),
             "incorrect rule matched"
         );
     }
@@ -332,9 +349,9 @@ mod tests {
             InboundRoute {
                 rules: vec![
                     InboundRule {
-                        labels: maplit::btreemap! {
-                            "expected".to_string() => "".to_string(),
-                        },
+                        filters: vec![Filter::ModifyRequestHeader(
+                            filter::ModifyRequestHeader::default(),
+                        )],
                         ..InboundRule::default()
                     },
                     // Redundant unlabeled rule.
@@ -349,12 +366,9 @@ mod tests {
             },
         ]);
 
-        let (_, rule, _) = rts
+        let m = rts
             .find_route(&http::Request::builder().body(()).unwrap())
             .expect("must match");
-        assert!(
-            rule.labels.contains_key("expected"),
-            "incorrect rule matched"
-        );
+        assert!(!m.rule.filters.is_empty(), "incorrect rule matched");
     }
 }
