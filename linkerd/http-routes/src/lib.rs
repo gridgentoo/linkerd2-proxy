@@ -26,6 +26,32 @@ pub struct InboundRoute {
     // TODO Authorizations (inbound)
 }
 
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct InboundAuthorization {
+    pub kind: String,
+    pub name: String,
+    pub required_authentications: Vec<RequiredAuthentication>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub enum RequiredAuthentication {
+    Networks(Vec<Network>),
+    MeshTLSIdentities(Vec<MeshTLSIdent>),
+    MeshTLS,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct NetworkAuthentication {
+    pub network: IpNet,
+    pub except: IpNet,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub enum MeshTLSIdentity {
+    Exact(String),
+    Suffix(Vec<String>),
+}
+
 #[cfg(feature = "inbound")]
 #[derive(Clone, Debug, Default, Hash, PartialEq)]
 pub struct InboundRule {
@@ -80,7 +106,7 @@ pub struct OutboundRouteMatch<'r> {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct RouteMatch {
+pub struct RouteMatch {
     host: Option<HostMatch>,
     rule: RequestMatch,
 }
@@ -143,7 +169,19 @@ impl OutboundRoute {
     }
 }
 
-// === impl RuleMatch ===
+// === impl RouteMatch ===
+
+impl AsRef<RouteMatch> for InboundRouteMatch<'_> {
+    fn as_ref(&self) -> &RouteMatch {
+        &self.r#match
+    }
+}
+
+impl AsRef<RouteMatch> for OutboundRouteMatch<'_> {
+    fn as_ref(&self) -> &RouteMatch {
+        &self.r#match
+    }
+}
 
 impl RouteMatch {
     fn find<'r, B>(

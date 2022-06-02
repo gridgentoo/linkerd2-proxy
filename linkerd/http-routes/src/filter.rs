@@ -1,5 +1,5 @@
 use crate::{PathMatch, RouteMatch};
-use http::header::{HeaderName, HeaderValue};
+use http::{header::{HeaderName, HeaderValue}, uri::InvalidUri};
 
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Filter {
@@ -17,7 +17,8 @@ pub struct ModifyRequestHeader {
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub struct RedirectRequest {
     pub scheme: Option<http::uri::Scheme>,
-    pub authority: Option<http::uri::Authority>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
     pub path: Option<PathModifier>,
     pub status_code: http::StatusCode,
 }
@@ -36,6 +37,9 @@ pub enum InvalidRedirect {
     #[error("redirect produced an invalid location: {0}")]
     InvalidLocation(#[from] http::Error),
 
+    #[error("redirect produced an invalid authority: {0}")]
+    InvalidAuthority(#[from] http::uri::InvalidUri),
+
     #[error("no authority to redirect to")]
     MissingAuthority,
 }
@@ -49,7 +53,7 @@ pub struct Redirection {
 // === impl ModifyRequestHeader ===
 
 impl ModifyRequestHeader {
-    pub(crate) fn apply(&self, headers: &mut http::HeaderMap) {
+    pub fn apply(&self, headers: &mut http::HeaderMap) {
         for (hdr, val) in &self.set {
             headers.insert(hdr, val.clone());
         }
@@ -65,7 +69,7 @@ impl ModifyRequestHeader {
 // === impl RedirectRequest ===
 
 impl RedirectRequest {
-    pub(crate) fn apply(
+    pub fn apply(
         &self,
         orig_uri: &http::Uri,
         rm: &RouteMatch,
@@ -76,11 +80,21 @@ impl RedirectRequest {
                 .clone()
                 .or_else(|| orig_uri.scheme().cloned())
                 .unwrap_or(http::uri::Scheme::HTTP);
-            let authority = self
-                .authority
-                .clone()
-                .or_else(|| orig_uri.authority().cloned())
-                .ok_or(InvalidRedirect::MissingAuthority)?;
+
+            let authority = {
+                let host = self
+                    .host
+                    .clone()
+                    .or_else(|| orig_uri.host().map(|s| s.to_owned()))
+                    .ok_or(InvalidRedirect::MissingAuthority)?;
+                let port = self.port.or_else(|| orig_uri.port_u16());
+                let hp = match port {
+                    Some(p) => format!("{}:{}", host, p),
+                    None => host,
+                };
+                hp.parse()?
+            };
+
             let path = {
                 let path = orig_uri.path();
                 match &self.path {
@@ -95,9 +109,10 @@ impl RedirectRequest {
                     },
                 }
             };
+
             http::Uri::builder()
                 .scheme(scheme)
-                .authority(authority)
+                .authority(http::uri::Authority::)
                 .path_and_query(path)
                 .build()
                 .map_err(InvalidRedirect::InvalidLocation)?
