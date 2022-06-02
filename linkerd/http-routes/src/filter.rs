@@ -4,20 +4,20 @@ use http::{
     uri::{Authority, InvalidUri},
 };
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Filter {
     ModifyRequestHeader(ModifyRequestHeader),
     RedirectRequest(RedirectRequest),
 }
 
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct ModifyRequestHeader {
     pub add: Vec<(HeaderName, HeaderValue)>,
     pub set: Vec<(HeaderName, HeaderValue)>,
     pub remove: Vec<HeaderName>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct RedirectRequest {
     pub scheme: Option<http::uri::Scheme>,
     pub host: Option<String>,
@@ -26,7 +26,7 @@ pub struct RedirectRequest {
     pub status_code: http::StatusCode,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum PathModifier {
     ReplaceFullPath(String),
     ReplacePrefixMatch(String),

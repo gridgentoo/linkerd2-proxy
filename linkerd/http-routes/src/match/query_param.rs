@@ -42,6 +42,8 @@ impl std::hash::Hash for MatchQueryParam {
     }
 }
 
+impl std::cmp::Eq for MatchQueryParam {}
+
 impl std::cmp::PartialEq for MatchQueryParam {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

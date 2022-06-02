@@ -55,6 +55,7 @@ pub fn default_config() -> Config {
             default: ServerPolicy {
                 protocol: Protocol::Detect {
                     timeout: std::time::Duration::from_secs(10),
+                    http: Default::default(),
                 },
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,

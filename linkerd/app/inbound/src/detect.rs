@@ -202,7 +202,7 @@ impl<N> Inbound<N> {
                             // When HTTP detection fails, forward the connection to the application as
                             // an opaque TCP stream.
                             Err(timeout) => match tls.policy.protocol() {
-                                Protocol::Http1 => {
+                                Protocol::Http1 { .. } => {
                                     // If the protocol was hinted to be HTTP/1.1 but detection
                                     // failed, we'll usually be handling HTTP/1, but we may actually
                                     // be handling HTTP/2 via protocol upgrade. Our options are:
@@ -249,7 +249,7 @@ impl<N> Inbound<N> {
                     // version.
                     move |tls: Tls| -> Result<_, Infallible> {
                         let http = match tls.policy.protocol() {
-                            Protocol::Detect { timeout } => {
+                            Protocol::Detect { timeout, .. } => {
                                 return Ok(svc::Either::B(Detect { timeout, tls }));
                             }
                             // Meshed HTTP/1 services may actually be transported over HTTP/2 connections
@@ -257,7 +257,7 @@ impl<N> Inbound<N> {
                             //
                             // TODO(ver) outbound clients should hint this with ALPN so we don't
                             // have to detect this situation.
-                            Protocol::Http1 if tls.status.is_some() => {
+                            Protocol::Http1 { .. } if tls.status.is_some() => {
                                 return Ok(svc::Either::B(Detect {
                                     timeout: detect_timeout,
                                     tls,
@@ -265,8 +265,8 @@ impl<N> Inbound<N> {
                             }
                             // Unmeshed services don't use protocol upgrading, so we can use the
                             // hint without further detection.
-                            Protocol::Http1 => http::Version::Http1,
-                            Protocol::Http2 | Protocol::Grpc => http::Version::H2,
+                            Protocol::Http1 { .. } => http::Version::Http1,
+                            Protocol::Http2 { .. } | Protocol::Grpc { .. } => http::Version::H2,
                             _ => unreachable!("opaque protocols must not hit the HTTP stack"),
                         };
                         Ok(svc::Either::A(Http { http, tls }))
@@ -507,6 +507,7 @@ mod tests {
             }),
             policy: allow(Protocol::Detect {
                 timeout: std::time::Duration::from_secs(10),
+                http: Default::default(),
             }),
         };
 
@@ -536,6 +537,7 @@ mod tests {
             }),
             policy: allow(Protocol::Detect {
                 timeout: std::time::Duration::from_secs(10),
+                http: Default::default(),
             }),
         };
 
@@ -562,7 +564,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http1),
+            policy: allow(Protocol::Http1(Default::default())),
         };
 
         let (ior, mut iow) = io::duplex(100);
@@ -588,7 +590,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http1),
+            policy: allow(Protocol::Http1(Default::default())),
         };
 
         let (ior, mut iow) = io::duplex(100);
@@ -614,7 +616,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http2),
+            policy: allow(Protocol::Http2(Default::default())),
         };
 
         let (ior, _) = io::duplex(100);

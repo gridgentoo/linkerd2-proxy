@@ -11,7 +11,7 @@ pub use self::{
 };
 pub(crate) use self::{host::HostMatch, path::PathMatch};
 
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct MatchRequest {
     pub path: Option<MatchPath>,
     pub headers: Vec<MatchHeader>,

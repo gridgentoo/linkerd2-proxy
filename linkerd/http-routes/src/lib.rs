@@ -10,27 +10,20 @@ pub use self::{
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "inbound")]
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub struct InboundRoutes(pub Vec<InboundRoute>);
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct InboundRoutes(pub Arc<[InboundRoute]>);
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub struct OutboundRoutes(pub Vec<OutboundRoute>);
+#[derive(Clone, Debug, Default, Hash, PartialEq)]
+pub struct OutboundRoutes(pub Arc<[OutboundRoute]>);
 
 #[cfg(feature = "inbound")]
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct InboundRoute {
     pub hosts: Vec<MatchHost>,
     pub rules: Vec<InboundRule>,
     pub labels: RouteLabels,
     // TODO Authorizations (inbound)
-}
-
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub struct InboundAuthorization {
-    pub kind: String,
-    pub name: String,
-    pub required_authentications: Vec<RequiredAuthentication>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -53,7 +46,7 @@ pub enum MeshTLSIdentity {
 }
 
 #[cfg(feature = "inbound")]
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct InboundRule {
     pub matches: Vec<MatchRequest>,
     pub filters: Vec<Filter>,
@@ -67,7 +60,7 @@ pub struct OutboundRoute {
     pub labels: RouteLabels,
 }
 
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct RouteLabels(Arc<BTreeMap<String, String>>);
 
 #[cfg(feature = "outbound")]
@@ -112,6 +105,13 @@ pub struct RouteMatch {
 }
 
 // === impl InboundRoutes ===
+
+#[cfg(feature = "inbound")]
+impl Default for InboundRoutes {
+    fn default() -> Self {
+        Self(Arc::new([]))
+    }
+}
 
 #[cfg(feature = "inbound")]
 impl InboundRoutes {
@@ -171,12 +171,14 @@ impl OutboundRoute {
 
 // === impl RouteMatch ===
 
+#[cfg(feature = "inbound")]
 impl AsRef<RouteMatch> for InboundRouteMatch<'_> {
     fn as_ref(&self) -> &RouteMatch {
         &self.r#match
     }
 }
 
+#[cfg(feature = "outbound")]
 impl AsRef<RouteMatch> for OutboundRouteMatch<'_> {
     fn as_ref(&self) -> &RouteMatch {
         &self.r#match
@@ -249,32 +251,35 @@ mod tests {
     fn inbound_find_route_hostname_precedence() {
         // Given two equivalent routes, choose the explicit hostname match and
         // not the wildcard.
-        let rts = InboundRoutes(vec![
-            InboundRoute {
-                hosts: vec!["*.example.com".parse().unwrap()],
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo".to_string())),
-                        ..MatchRequest::default()
+        let rts = InboundRoutes(
+            vec![
+                InboundRoute {
+                    hosts: vec!["*.example.com".parse().unwrap()],
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            path: Some(MatchPath::Exact("/foo".to_string())),
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                ..InboundRoute::default()
-            },
-            InboundRoute {
-                hosts: vec!["foo.example.com".parse().unwrap()],
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo".to_string())),
-                        ..MatchRequest::default()
+                    ..InboundRoute::default()
+                },
+                InboundRoute {
+                    hosts: vec!["foo.example.com".parse().unwrap()],
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            path: Some(MatchPath::Exact("/foo".to_string())),
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                labels: RouteLabels::from(maplit::btreemap! {
-                    "expected".to_string() => "".to_string(),
-                }),
-            },
-        ]);
+                    labels: RouteLabels::from(maplit::btreemap! {
+                        "expected".to_string() => "".to_string(),
+                    }),
+                },
+            ]
+            .into(),
+        );
 
         let req = http::Request::builder()
             .uri("http://foo.example.com/foo")
@@ -290,31 +295,34 @@ mod tests {
     #[test]
     fn inbound_find_route_path_length_precedence() {
         // Given two equivalent routes, choose the longer path match.
-        let rts = InboundRoutes(vec![
-            InboundRoute {
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        path: Some(MatchPath::Prefix("/foo".to_string())),
-                        ..MatchRequest::default()
+        let rts = InboundRoutes(
+            vec![
+                InboundRoute {
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            path: Some(MatchPath::Prefix("/foo".to_string())),
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                ..InboundRoute::default()
-            },
-            InboundRoute {
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo/bar".to_string())),
-                        ..MatchRequest::default()
+                    ..InboundRoute::default()
+                },
+                InboundRoute {
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            path: Some(MatchPath::Exact("/foo/bar".to_string())),
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                labels: RouteLabels::from(maplit::btreemap! {
-                    "expected".to_string() => "".to_string(),
-                }),
-                ..InboundRoute::default()
-            },
-        ]);
+                    labels: RouteLabels::from(maplit::btreemap! {
+                        "expected".to_string() => "".to_string(),
+                    }),
+                    ..InboundRoute::default()
+                },
+            ]
+            .into(),
+        );
 
         let req = http::Request::builder()
             .uri("http://foo.example.com/foo/bar")
@@ -331,38 +339,56 @@ mod tests {
     fn inbound_find_route_header_count_precedence() {
         // Given two routes with header matches, use the one that matches more
         // headers.
-        let rts = InboundRoutes(vec![
-            InboundRoute {
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        headers: vec![
-                            MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
-                            MatchHeader::Exact("x-baz".parse().unwrap(), "qux".parse().unwrap()),
-                        ],
-                        ..MatchRequest::default()
+        let rts = InboundRoutes(
+            vec![
+                InboundRoute {
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            headers: vec![
+                                MatchHeader::Exact(
+                                    "x-foo".parse().unwrap(),
+                                    "bar".parse().unwrap(),
+                                ),
+                                MatchHeader::Exact(
+                                    "x-baz".parse().unwrap(),
+                                    "qux".parse().unwrap(),
+                                ),
+                            ],
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                ..InboundRoute::default()
-            },
-            InboundRoute {
-                rules: vec![InboundRule {
-                    matches: vec![MatchRequest {
-                        headers: vec![
-                            MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
-                            MatchHeader::Exact("x-baz".parse().unwrap(), "qux".parse().unwrap()),
-                            MatchHeader::Exact("x-biz".parse().unwrap(), "qyx".parse().unwrap()),
-                        ],
-                        ..MatchRequest::default()
+                    ..InboundRoute::default()
+                },
+                InboundRoute {
+                    rules: vec![InboundRule {
+                        matches: vec![MatchRequest {
+                            headers: vec![
+                                MatchHeader::Exact(
+                                    "x-foo".parse().unwrap(),
+                                    "bar".parse().unwrap(),
+                                ),
+                                MatchHeader::Exact(
+                                    "x-baz".parse().unwrap(),
+                                    "qux".parse().unwrap(),
+                                ),
+                                MatchHeader::Exact(
+                                    "x-biz".parse().unwrap(),
+                                    "qyx".parse().unwrap(),
+                                ),
+                            ],
+                            ..MatchRequest::default()
+                        }],
+                        ..InboundRule::default()
                     }],
-                    ..InboundRule::default()
-                }],
-                labels: RouteLabels::from(maplit::btreemap! {
-                    "expected".to_string() => "".to_string(),
-                }),
-                ..InboundRoute::default()
-            },
-        ]);
+                    labels: RouteLabels::from(maplit::btreemap! {
+                        "expected".to_string() => "".to_string(),
+                    }),
+                    ..InboundRoute::default()
+                },
+            ]
+            .into(),
+        );
 
         let req = http::Request::builder()
             .uri("http://www.example.com")
@@ -382,26 +408,29 @@ mod tests {
     fn inbound_find_route_first_identical_wins() {
         // Given two routes with header matches, use the one that matches more
         // headers.
-        let rts = InboundRoutes(vec![
-            InboundRoute {
-                rules: vec![
-                    InboundRule {
-                        filters: vec![Filter::ModifyRequestHeader(
-                            filter::ModifyRequestHeader::default(),
-                        )],
-                        ..InboundRule::default()
-                    },
-                    // Redundant unlabeled rule.
-                    InboundRule::default(),
-                ],
-                ..InboundRoute::default()
-            },
-            // Redundant unlabeled route.
-            InboundRoute {
-                rules: vec![InboundRule::default()],
-                ..InboundRoute::default()
-            },
-        ]);
+        let rts = InboundRoutes(
+            vec![
+                InboundRoute {
+                    rules: vec![
+                        InboundRule {
+                            filters: vec![Filter::ModifyRequestHeader(
+                                filter::ModifyRequestHeader::default(),
+                            )],
+                            ..InboundRule::default()
+                        },
+                        // Redundant unlabeled rule.
+                        InboundRule::default(),
+                    ],
+                    ..InboundRoute::default()
+                },
+                // Redundant unlabeled route.
+                InboundRoute {
+                    rules: vec![InboundRule::default()],
+                    ..InboundRoute::default()
+                },
+            ]
+            .into(),
+        );
 
         let m = rts
             .find_route(&http::Request::builder().body(()).unwrap())

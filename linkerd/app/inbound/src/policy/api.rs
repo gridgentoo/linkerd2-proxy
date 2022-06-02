@@ -100,11 +100,12 @@ fn to_policy(proto: api::Server) -> Result<ServerPolicy> {
                             .map_err(|t| format!("negative detect timeout: {:?}", t))?,
                         None => return Err("protocol missing detect timeout".into()),
                     },
+                    http: Default::default(),
                 }
             }
-            api::proxy_protocol::Kind::Http1(_) => Protocol::Http1,
-            api::proxy_protocol::Kind::Http2(_) => Protocol::Http2,
-            api::proxy_protocol::Kind::Grpc(_) => Protocol::Grpc,
+            api::proxy_protocol::Kind::Http1(_) => Protocol::Http1(Default::default()),
+            api::proxy_protocol::Kind::Http2(_) => Protocol::Http2(Default::default()),
+            api::proxy_protocol::Kind::Grpc(_) => Protocol::Grpc(Default::default()),
             api::proxy_protocol::Kind::Opaque(_) => Protocol::Opaque,
             api::proxy_protocol::Kind::Tls(_) => Protocol::Tls,
         },

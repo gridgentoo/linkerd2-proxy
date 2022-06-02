@@ -964,6 +964,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "linkerd-authz"
+version = "0.1.0"
+dependencies = [
+ "ipnet",
+ "quickcheck",
+]
+
+[[package]]
 name = "linkerd-cache"
 version = "0.1.0"
 dependencies = [
@@ -1482,8 +1490,8 @@ dependencies = [
 name = "linkerd-server-policy"
 version = "0.1.0"
 dependencies = [
- "ipnet",
- "quickcheck",
+ "linkerd-authz",
+ "linkerd-http-routes",
 ]
 
 [[package]]

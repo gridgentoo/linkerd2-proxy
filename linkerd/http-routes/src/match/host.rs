@@ -1,6 +1,6 @@
 use http::Uri;
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum MatchHost {
     Exact(String),
 

@@ -61,7 +61,10 @@ fn mk(
     timeout: Duration,
 ) -> ServerPolicy {
     ServerPolicy {
-        protocol: Protocol::Detect { timeout },
+        protocol: Protocol::Detect {
+            timeout,
+            http: Default::default(),
+        },
         authorizations: vec![Authorization {
             networks: nets.into_iter().map(Into::into).collect(),
             authentication,

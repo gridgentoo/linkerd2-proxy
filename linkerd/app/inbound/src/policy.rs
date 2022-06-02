@@ -91,7 +91,7 @@ impl AllowPolicy {
 
     #[inline]
     pub(crate) fn protocol(&self) -> Protocol {
-        self.server.borrow().protocol
+        self.server.borrow().protocol.clone()
     }
 
     #[inline]
@@ -188,7 +188,7 @@ impl Permit {
     fn new(dst: OrigDstAddr, server: &ServerPolicy, authz: &Authorization) -> Self {
         Self {
             dst,
-            protocol: server.protocol,
+            protocol: server.protocol.clone(),
             labels: AuthzLabels {
                 kind: authz.kind.clone(),
                 name: authz.name.clone(),

@@ -43,6 +43,8 @@ impl std::hash::Hash for MatchHeader {
     }
 }
 
+impl std::cmp::Eq for MatchHeader {}
+
 impl std::cmp::PartialEq for MatchHeader {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

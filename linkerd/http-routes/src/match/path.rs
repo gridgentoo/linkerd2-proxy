@@ -60,6 +60,8 @@ impl std::hash::Hash for MatchPath {
     }
 }
 
+impl std::cmp::Eq for MatchPath {}
+
 impl std::cmp::PartialEq for MatchPath {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

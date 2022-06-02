@@ -606,7 +606,7 @@ impl svc::Param<policy::AllowPolicy> for Target {
         let (policy, _) = policy::AllowPolicy::for_test(
             self.param(),
             policy::ServerPolicy {
-                protocol: policy::Protocol::Http1,
+                protocol: policy::Protocol::Http1(Default::default()),
                 authorizations: vec![policy::Authorization {
                     authentication: policy::Authentication::Unauthenticated,
                     networks: vec![std::net::IpAddr::from([192, 0, 2, 3]).into()],
