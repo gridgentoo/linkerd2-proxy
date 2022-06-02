@@ -14,7 +14,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct InboundRoutes(pub Arc<[InboundRoute]>);
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct OutboundRoutes(pub Arc<[OutboundRoute]>);
 
 #[cfg(feature = "inbound")]
@@ -53,7 +53,7 @@ pub struct InboundRule {
 }
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Default, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct OutboundRoute {
     pub hosts: Vec<MatchHost>,
     pub rules: Vec<OutboundRule>,
@@ -64,7 +64,7 @@ pub struct OutboundRoute {
 pub struct RouteLabels(Arc<BTreeMap<String, String>>);
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct OutboundRule {
     pub matches: Vec<MatchRequest>,
     pub filters: Vec<Filter>,
@@ -72,14 +72,14 @@ pub struct OutboundRule {
 }
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Backend {
     pub filters: Vec<Filter>,
     pub coordinate: BackendCoordinate,
 }
 
 #[cfg(feature = "outbound")]
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct BackendCoordinate(String);
 
 #[cfg(feature = "inbound")]
@@ -141,6 +141,13 @@ impl InboundRoute {
 }
 
 // === impl OutboundRoutes ===
+
+#[cfg(feature = "outbound")]
+impl Default for OutboundRoutes {
+    fn default() -> Self {
+        Self(Arc::new([]))
+    }
+}
 
 #[cfg(feature = "outbound")]
 impl OutboundRoutes {
