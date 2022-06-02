@@ -36,14 +36,14 @@ pub struct InboundAuthorization {
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub enum RequiredAuthentication {
     Networks(Vec<Network>),
-    MeshTLSIdentities(Vec<MeshTLSIdent>),
+    MeshTLSIdentities(Vec<MeshTLSIdentity>),
     MeshTLS,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
-pub struct NetworkAuthentication {
-    pub network: IpNet,
-    pub except: IpNet,
+pub struct Network {
+    // pub network: IpNet,
+// pub except: IpNet,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -273,7 +273,6 @@ mod tests {
                 labels: RouteLabels::from(maplit::btreemap! {
                     "expected".to_string() => "".to_string(),
                 }),
-                ..InboundRoute::default()
             },
         ]);
 

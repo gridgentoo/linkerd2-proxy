@@ -1,5 +1,8 @@
 use crate::{PathMatch, RouteMatch};
-use http::{header::{HeaderName, HeaderValue}, uri::InvalidUri};
+use http::{
+    header::{HeaderName, HeaderValue},
+    uri::{Authority, InvalidUri},
+};
 
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Filter {
@@ -38,7 +41,7 @@ pub enum InvalidRedirect {
     InvalidLocation(#[from] http::Error),
 
     #[error("redirect produced an invalid authority: {0}")]
-    InvalidAuthority(#[from] http::uri::InvalidUri),
+    InvalidAuthority(#[from] InvalidUri),
 
     #[error("no authority to redirect to")]
     MissingAuthority,
@@ -92,7 +95,7 @@ impl RedirectRequest {
                     Some(p) => format!("{}:{}", host, p),
                     None => host,
                 };
-                hp.parse()?
+                hp.parse::<Authority>()?
             };
 
             let path = {
@@ -112,7 +115,7 @@ impl RedirectRequest {
 
             http::Uri::builder()
                 .scheme(scheme)
-                .authority(http::uri::Authority::)
+                .authority(authority)
                 .path_and_query(path)
                 .build()
                 .map_err(InvalidRedirect::InvalidLocation)?
