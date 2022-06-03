@@ -5,11 +5,6 @@ license = "Apache-2.0"
 edition = "2021"
 publish = false
 
-[features]
-default = ["inbound"]
-inbound = []
-outbound = []
-
 [dependencies]
 futures = { version = "0.3", default-features = false }
 http = "0.2"

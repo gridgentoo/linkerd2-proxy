@@ -1,6 +1,6 @@
 use ipnet::IpNet;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Network {
     pub net: IpNet,
     pub except: Vec<IpNet>,

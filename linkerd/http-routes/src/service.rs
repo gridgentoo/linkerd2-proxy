@@ -1,4 +1,4 @@
-use super::InboundRoutes;
+use super::Routes;
 use crate::filter::{Filter, InvalidRedirect, Redirection};
 use futures::TryFutureExt;
 use linkerd_stack::Service;
@@ -11,7 +11,7 @@ use tokio::sync::watch;
 
 #[derive(Clone, Debug)]
 pub struct InboundService<S> {
-    watch: watch::Receiver<InboundRoutes>,
+    watch: watch::Receiver<Routes>,
     inner: S,
 }
 
@@ -31,7 +31,7 @@ pub enum Error<E> {
 }
 
 impl<S> InboundService<S> {
-    pub fn new(watch: watch::Receiver<InboundRoutes>, inner: S) -> Self {
+    pub fn new(watch: watch::Receiver<Routes>, inner: S) -> Self {
         Self { watch, inner }
     }
 }
@@ -55,7 +55,7 @@ where
     #[inline]
     fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
         let routes = self.watch.borrow();
-        let route = match routes.find_route(&req) {
+        let (route, policy) = match routes.find(&req) {
             Some(r) => r,
             None => return Box::pin(futures::future::err(Error::NoRoute)),
         };
@@ -75,7 +75,6 @@ where
             }
         }
 
-        req.extensions_mut().insert(route.route.labels.clone());
         Box::pin(self.inner.call(req).map_err(Error::Inner))
     }
 }

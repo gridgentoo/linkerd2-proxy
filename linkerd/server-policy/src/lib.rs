@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub use linkerd_authz::{Authentication, Authorization, Network, Suffix};
-pub use linkerd_http_routes::InboundRoutes;
+pub use linkerd_http_routes::{filter, Routes};
 use std::{sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,5 +29,17 @@ pub enum Protocol {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
     pub info_headers: bool,
-    pub routes: InboundRoutes,
+    pub routes: Routes<RoutePolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RoutePolicy {
+    pub authorizations: Arc<[Authorization]>,
+    pub filters: Vec<RouteFilter>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RouteFilter {
+    RequestHeaders(filter::ModifyRequestHeader),
+    Redirect(filter::RedirectRequest),
 }

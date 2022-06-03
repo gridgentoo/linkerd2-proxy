@@ -4,9 +4,9 @@
 mod network;
 
 pub use self::network::Network;
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Authorization {
     pub networks: Vec<Network>,
     pub authentication: Authentication,
@@ -15,17 +15,17 @@ pub struct Authorization {
     pub name: Arc<str>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Authentication {
     Unauthenticated,
     TlsUnauthenticated,
     TlsAuthenticated {
-        identities: HashSet<String>,
+        identities: BTreeSet<String>,
         suffixes: Vec<Suffix>,
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Suffix {
     ends_with: String,
 }

@@ -4,12 +4,6 @@ use http::{
     uri::{Authority, InvalidUri},
 };
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum Filter {
-    ModifyRequestHeader(ModifyRequestHeader),
-    RedirectRequest(RedirectRequest),
-}
-
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct ModifyRequestHeader {
     pub add: Vec<(HeaderName, HeaderValue)>,
@@ -72,7 +66,7 @@ impl ModifyRequestHeader {
 // === impl RedirectRequest ===
 
 impl RedirectRequest {
-    pub fn apply(
+    pub fn apply<T>(
         &self,
         orig_uri: &http::Uri,
         rm: &RouteMatch,
@@ -103,7 +97,7 @@ impl RedirectRequest {
                 match &self.path {
                     None => path.to_string(),
                     Some(PathModifier::ReplaceFullPath(p)) => p.clone(),
-                    Some(PathModifier::ReplacePrefixMatch(new_pfx)) => match rm.rule.path() {
+                    Some(PathModifier::ReplacePrefixMatch(new_pfx)) => match rm.request.path() {
                         PathMatch::Prefix(pfx_len) if *pfx_len <= path.len() => {
                             let (_, rest) = path.split_at(*pfx_len);
                             format!("{}{}", new_pfx, rest)
