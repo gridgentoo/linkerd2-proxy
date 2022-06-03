@@ -6,9 +6,14 @@ use self::r#match::{HostMatch, PathMatch, RequestMatch};
 pub use self::r#match::{MatchHost, MatchRequest};
 use std::sync::Arc;
 
+/// Holds all routes that may be considered for a given request.
+///
+/// Routes are selected by finding the route that matches "most". When multiple
+/// routes match equivalently, the first one is used.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Routes<T>(pub Arc<[Route<T>]>);
 
+///
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct Route<T> {
     pub hosts: Vec<MatchHost>,
@@ -49,7 +54,7 @@ impl<T> Routes<T> {
 // === impl Route ===
 
 impl<T> Route<T> {
-    pub(crate) fn find<B>(&self, req: &http::Request<B>) -> Option<(RouteMatch, &T)> {
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(RouteMatch, &T)> {
         let host = if self.hosts.is_empty() {
             None
         } else {
@@ -71,13 +76,14 @@ impl<T> Route<T> {
                 if rule.matches.is_empty() {
                     return Some((RequestMatch::default(), &rule.policy));
                 }
-                // The order of request matches doesn't matter but we need to
-                // find the best match to compare against other rules/routes.
-                rule.matches
+                // Find the best match to compare against other rules/routes (if
+                // any apply). The order/precedence of matche is not relevant.
+                let m = rule
+                    .matches
                     .iter()
                     .filter_map(|m| m.summarize_match(req))
-                    .max()
-                    .map(|m| (m, &rule.policy))
+                    .max()?;
+                Some((m, &rule.policy))
             })
             // This is roughly equivalent to `max_by(...)` but we want to ensure
             // that the first match wins.
@@ -103,10 +109,10 @@ mod tests {
         }
     }
 
+    /// Given two equivalent routes, choose the explicit hostname match and not
+    /// the wildcard.
     #[test]
-    fn find_hostname_precedence() {
-        // Given two equivalent routes, choose the explicit hostname match and
-        // not the wildcard.
+    fn hostname_precedence() {
         let rts = Routes(
             vec![
                 Route {
@@ -142,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn find_path_length_precedence() {
+    fn path_length_precedence() {
         // Given two equivalent routes, choose the longer path match.
         let rts = Routes(
             vec![
@@ -178,10 +184,10 @@ mod tests {
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 
+    /// Given two routes with header matches, use the one that matches more
+    /// headers.
     #[test]
-    fn find_header_count_precedence() {
-        // Given two routes with header matches, use the one that matches more
-        // headers.
+    fn header_count_precedence() {
         let rts = Routes(
             vec![
                 Route {
@@ -241,10 +247,10 @@ mod tests {
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 
+    /// Given two routes with header matches, use the one that matches more
+    /// headers.
     #[test]
-    fn find_first_identical_wins() {
-        // Given two routes with header matches, use the one that matches more
-        // headers.
+    fn first_identical_wins() {
         let rts = Routes(
             vec![
                 Route {

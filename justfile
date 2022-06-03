@@ -111,6 +111,9 @@ clippy *flags: fmt
 clippy-crate crate *flags: fmt
     {{ cargo }} clippy --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
+clippy-dir dir *flags: fmt
+    cd {{ dir }} && {{ cargo }} clippy --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
+
 doc *flags: fmt
     {{ cargo }} doc --no-deps --workspace --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
@@ -142,6 +145,18 @@ test-crate crate *flags: fmt
             {{ flags }}
     fi
 
+test-dir dir *flags: fmt
+    #!/usr/bin/env bash
+    cd {{ dir }}
+    if command -v cargo-nextest >/dev/null 2>&1; then
+        {{ cargo }} nextest run --frozen {{ _features }} \
+            {{ if build_type == "release" { "--release" } else { "" } }} \
+            {{ flags }}
+    else
+        {{ cargo }} test --frozen {{ _features }} \
+            {{ if build_type == "release" { "--release" } else { "" } }} \
+            {{ flags }}
+    fi
 
 # Build the proxy
 build: fmt
