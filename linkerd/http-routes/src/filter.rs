@@ -17,7 +17,7 @@ pub struct RedirectRequest {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub path: Option<PathModifier>,
-    pub status_code: http::StatusCode,
+    pub status: Option<http::StatusCode>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -115,9 +115,8 @@ impl RedirectRequest {
                 .map_err(InvalidRedirect::InvalidLocation)?
         };
 
-        Ok(Redirection {
-            status: self.status_code,
-            location,
-        })
+        let status = self.status.unwrap_or(http::StatusCode::MOVED_PERMANENTLY);
+
+        Ok(Redirection { status, location })
     }
 }
