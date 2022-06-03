@@ -85,5 +85,8 @@ mod tests {
         let m = MatchQueryParam::Regex("foo".to_string(), "bar/.+".parse().unwrap());
         assert!(m.is_match(&"/?foo=bar%2Fhi".parse().unwrap()));
         assert!(!m.is_match(&"/?foo=bah%20hi".parse().unwrap()));
+
+        let m = MatchQueryParam::Regex("foo".to_string(), ".*".parse().unwrap());
+        assert!(m.is_match(&"/?foo".parse().unwrap()));
     }
 }
