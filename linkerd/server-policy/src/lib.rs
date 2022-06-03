@@ -1,7 +1,9 @@
 #![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![forbid(unsafe_code)]
 
-pub use linkerd_authz::{Authentication, Authorization, Network, Suffix};
+mod authz;
+
+pub use self::authz::{Authentication, Authorization, Network, Suffix};
 pub use linkerd_http_routes::{filter, Routes};
 use std::{sync::Arc, time};
 

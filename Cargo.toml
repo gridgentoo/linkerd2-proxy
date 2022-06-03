@@ -14,7 +14,6 @@ members = [
     "linkerd/app/outbound",
     "linkerd/app/test",
     "linkerd/app",
-    "linkerd/authz",
     "linkerd/cache",
     "linkerd/conditional",
     "linkerd/detect",
