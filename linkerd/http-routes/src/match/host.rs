@@ -195,11 +195,11 @@ mod tests {
         assert!(HostMatch::Exact("example.com".len()) > HostMatch::Suffix(".example.com".len()));
         assert!(HostMatch::Exact("foo.example.com".len()) > HostMatch::Exact("example.com".len()));
         assert!(
-            HostMatch::Suffix("foo.example.com".len()) > HostMatch::Suffix(".example.com".len())
+            HostMatch::Suffix(".foo.example.com".len()) > HostMatch::Suffix(".example.com".len())
         );
         assert_eq!(
-            HostMatch::Suffix("foo.example.com".len()),
-            HostMatch::Suffix("bar.example.com".len())
+            HostMatch::Suffix(".foo.example.com".len()),
+            HostMatch::Suffix(".bar.example.com".len())
         );
     }
 }
