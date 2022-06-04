@@ -5,9 +5,13 @@ license = "Apache-2.0"
 edition = "2021"
 publish = false
 
+[features]
+proto = ["linkerd2-proxy-api"]
+
 [dependencies]
 futures = { version = "0.3", default-features = false }
 http = "0.2"
+linkerd2-proxy-api = { version = "0.5", features = ["http-route"], optional = true }
 linkerd-stack = { path = "../stack" }
 regex = "1"
 thiserror = "1"

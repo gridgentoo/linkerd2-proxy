@@ -35,15 +35,16 @@ impl TryFrom<api::Server> for ServerPolicy {
     fn try_from(proto: api::Server) -> Result<ServerPolicy, Self::Error> {
         let protocol = match proto.protocol {
             Some(api::ProxyProtocol { kind: Some(k) }) => match k {
-                api::proxy_protocol::Kind::Detect(api::proxy_protocol::Detect { timeout }) => {
-                    Protocol::Detect {
-                        timeout: timeout
-                            .ok_or(Error::MissingDetectTimeout)?
-                            .try_into()
-                            .map_err(Error::NegativeDetectTimeout)?,
-                        http: Default::default(),
-                    }
-                }
+                api::proxy_protocol::Kind::Detect(api::proxy_protocol::Detect {
+                    timeout,
+                    http_routes: _,
+                }) => Protocol::Detect {
+                    timeout: timeout
+                        .ok_or(Error::MissingDetectTimeout)?
+                        .try_into()
+                        .map_err(Error::NegativeDetectTimeout)?,
+                    http: Default::default(),
+                },
                 api::proxy_protocol::Kind::Http1(_) => Protocol::Http1(Default::default()),
                 api::proxy_protocol::Kind::Http2(_) => Protocol::Http2(Default::default()),
                 api::proxy_protocol::Kind::Grpc(_) => Protocol::Grpc {
