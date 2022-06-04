@@ -1,8 +1,9 @@
 use crate::{
+    filter::ModifyRequestHeader,
     r#match::{MatchHeader, MatchPath, MatchQueryParam, MatchRequest},
     MatchHost,
 };
-use linkerd2_proxy_api::http_route as api;
+use linkerd2_proxy_api::{http_route as api, http_types};
 
 #[derive(Debug, thiserror::Error)]
 #[error("host match must contain a match")]
@@ -45,6 +46,15 @@ pub enum HeaderMatchError {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum RequestHeaderModifierError {
+    #[error("{0}")]
+    InvalidName(#[from] http::header::InvalidHeaderName),
+
+    #[error("{0}")]
+    InvalidValue(#[from] http::header::InvalidHeaderValue),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum QueryParamMatchError {
     #[error("missing a query param name")]
     MissingName,
@@ -56,6 +66,8 @@ pub enum QueryParamMatchError {
     InvalidRegex(#[from] regex::Error),
 }
 
+// === impl MatchHost ===
+
 impl TryFrom<api::HostMatch> for MatchHost {
     type Error = HostMatchError;
 
@@ -66,6 +78,8 @@ impl TryFrom<api::HostMatch> for MatchHost {
         }
     }
 }
+
+// === impl MatchRequest ===
 
 impl TryFrom<api::RouteMatch> for MatchRequest {
     type Error = RouteMatchError;
@@ -82,6 +96,8 @@ impl TryFrom<api::RouteMatch> for MatchRequest {
     }
 }
 
+// === impl MatchPath ===
+
 impl TryFrom<api::PathMatch> for MatchPath {
     type Error = PathMatchError;
 
@@ -95,6 +111,8 @@ impl TryFrom<api::PathMatch> for MatchPath {
     }
 }
 
+// === impl MatchHeader ===
+
 impl TryFrom<api::HeaderMatch> for MatchHeader {
     type Error = HeaderMatchError;
 
@@ -106,6 +124,8 @@ impl TryFrom<api::HeaderMatch> for MatchHeader {
         }
     }
 }
+
+// === impl MatchQueryParam ===
 
 impl TryFrom<api::QueryParamMatch> for MatchQueryParam {
     type Error = QueryParamMatchError;
@@ -120,5 +140,35 @@ impl TryFrom<api::QueryParamMatch> for MatchQueryParam {
                 Ok(MatchQueryParam::Regex(qpm.name, re.parse()?))
             }
         }
+    }
+}
+
+// === impl ModifyRequestHeader ===
+
+impl TryFrom<api::RequestHeaderModifier> for ModifyRequestHeader {
+    type Error = RequestHeaderModifierError;
+
+    fn try_from(rhm: api::RequestHeaderModifier) -> Result<Self, Self::Error> {
+        use http::header::{HeaderName, HeaderValue, InvalidHeaderName};
+
+        let to_pairs = |hs: Option<http_types::Headers>| {
+            hs.into_iter()
+                .flat_map(|a| a.headers.into_iter())
+                .map(|h| {
+                    let name = h.name.parse::<HeaderName>()?;
+                    let value = HeaderValue::from_bytes(&h.value)?;
+                    Ok((name, value))
+                })
+                .collect::<Result<Vec<(HeaderName, HeaderValue)>, Self::Error>>()
+        };
+
+        let add = to_pairs(rhm.add)?;
+        let set = to_pairs(rhm.set)?;
+        let remove = rhm
+            .remove
+            .into_iter()
+            .map(|n| n.parse::<HeaderName>())
+            .collect::<Result<Vec<HeaderName>, InvalidHeaderName>>()?;
+        Ok(ModifyRequestHeader { add, set, remove })
     }
 }
