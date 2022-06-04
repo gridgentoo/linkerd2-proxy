@@ -1,72 +1,15 @@
 use crate::{
-    filter::ModifyRequestHeader,
+    filter::{ModifyRequestHeader, PathModifier, RedirectRequest},
     r#match::{MatchHeader, MatchPath, MatchQueryParam, MatchRequest},
     MatchHost,
 };
 use linkerd2_proxy_api::{http_route as api, http_types};
 
+// === impl MatchHost ===
+
 #[derive(Debug, thiserror::Error)]
 #[error("host match must contain a match")]
 pub struct HostMatchError;
-
-#[derive(Debug, thiserror::Error)]
-pub enum RouteMatchError {
-    #[error("invalid path match: {0}")]
-    Path(#[from] PathMatchError),
-
-    #[error("invalid header match: {0}")]
-    Header(#[from] HeaderMatchError),
-
-    #[error("invalid query param match: {0}")]
-    QueryParam(#[from] QueryParamMatchError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PathMatchError {
-    #[error("missing match")]
-    MissingMatch,
-
-    #[error("invalid regular expression: {0}")]
-    InvalidRegex(#[from] regex::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum HeaderMatchError {
-    #[error("{0}")]
-    InvalidName(#[from] http::header::InvalidHeaderName),
-
-    #[error("missing a header value match")]
-    MissingValueMatch,
-
-    #[error("{0}")]
-    InvalidValue(#[from] http::header::InvalidHeaderValue),
-
-    #[error("invalid regular expression: {0}")]
-    InvalidRegex(#[from] regex::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RequestHeaderModifierError {
-    #[error("{0}")]
-    InvalidName(#[from] http::header::InvalidHeaderName),
-
-    #[error("{0}")]
-    InvalidValue(#[from] http::header::InvalidHeaderValue),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum QueryParamMatchError {
-    #[error("missing a query param name")]
-    MissingName,
-
-    #[error("missing a query param value")]
-    MissingValue,
-
-    #[error("invalid regular expression: {0}")]
-    InvalidRegex(#[from] regex::Error),
-}
-
-// === impl MatchHost ===
 
 impl TryFrom<api::HostMatch> for MatchHost {
     type Error = HostMatchError;
@@ -80,6 +23,18 @@ impl TryFrom<api::HostMatch> for MatchHost {
 }
 
 // === impl MatchRequest ===
+
+#[derive(Debug, thiserror::Error)]
+pub enum RouteMatchError {
+    #[error("invalid path match: {0}")]
+    Path(#[from] PathMatchError),
+
+    #[error("invalid header match: {0}")]
+    Header(#[from] HeaderMatchError),
+
+    #[error("invalid query param match: {0}")]
+    QueryParam(#[from] QueryParamMatchError),
+}
 
 impl TryFrom<api::RouteMatch> for MatchRequest {
     type Error = RouteMatchError;
@@ -98,6 +53,15 @@ impl TryFrom<api::RouteMatch> for MatchRequest {
 
 // === impl MatchPath ===
 
+#[derive(Debug, thiserror::Error)]
+pub enum PathMatchError {
+    #[error("missing match")]
+    MissingMatch,
+
+    #[error("invalid regular expression: {0}")]
+    InvalidRegex(#[from] regex::Error),
+}
+
 impl TryFrom<api::PathMatch> for MatchPath {
     type Error = PathMatchError;
 
@@ -113,6 +77,21 @@ impl TryFrom<api::PathMatch> for MatchPath {
 
 // === impl MatchHeader ===
 
+#[derive(Debug, thiserror::Error)]
+pub enum HeaderMatchError {
+    #[error("{0}")]
+    InvalidName(#[from] http::header::InvalidHeaderName),
+
+    #[error("missing a header value match")]
+    MissingValueMatch,
+
+    #[error("{0}")]
+    InvalidValue(#[from] http::header::InvalidHeaderValue),
+
+    #[error("invalid regular expression: {0}")]
+    InvalidRegex(#[from] regex::Error),
+}
+
 impl TryFrom<api::HeaderMatch> for MatchHeader {
     type Error = HeaderMatchError;
 
@@ -126,6 +105,18 @@ impl TryFrom<api::HeaderMatch> for MatchHeader {
 }
 
 // === impl MatchQueryParam ===
+
+#[derive(Debug, thiserror::Error)]
+pub enum QueryParamMatchError {
+    #[error("missing a query param name")]
+    MissingName,
+
+    #[error("missing a query param value")]
+    MissingValue,
+
+    #[error("invalid regular expression: {0}")]
+    InvalidRegex(#[from] regex::Error),
+}
 
 impl TryFrom<api::QueryParamMatch> for MatchQueryParam {
     type Error = QueryParamMatchError;
@@ -144,6 +135,15 @@ impl TryFrom<api::QueryParamMatch> for MatchQueryParam {
 }
 
 // === impl ModifyRequestHeader ===
+
+#[derive(Debug, thiserror::Error)]
+pub enum RequestHeaderModifierError {
+    #[error("{0}")]
+    InvalidName(#[from] http::header::InvalidHeaderName),
+
+    #[error("{0}")]
+    InvalidValue(#[from] http::header::InvalidHeaderValue),
+}
 
 impl TryFrom<api::RequestHeaderModifier> for ModifyRequestHeader {
     type Error = RequestHeaderModifierError;
@@ -170,5 +170,72 @@ impl TryFrom<api::RequestHeaderModifier> for ModifyRequestHeader {
             .map(|n| n.parse::<HeaderName>())
             .collect::<Result<Vec<HeaderName>, InvalidHeaderName>>()?;
         Ok(ModifyRequestHeader { add, set, remove })
+    }
+}
+
+// === impl RedirectRequest ===
+
+#[derive(Debug, thiserror::Error)]
+pub enum RequestRedirectError {
+    #[error("invalid HTTP status code: {0}")]
+    InvalidStatus(u32),
+
+    #[error("invalid port number: {0}")]
+    InvalidPort(u32),
+
+    #[error("{0}")]
+    InvalidValue(#[from] http::header::InvalidHeaderValue),
+}
+
+impl TryFrom<api::RequestRedirect> for RedirectRequest {
+    type Error = RequestRedirectError;
+
+    fn try_from(rr: api::RequestRedirect) -> Result<Self, Self::Error> {
+        let scheme = rr.scheme.and_then(|s| s.into_http());
+
+        let host = if rr.host.is_empty() {
+            None
+        } else {
+            // TODO ensure hostname is valid.
+            Some(rr.host)
+        };
+
+        let path = rr.path.map(|p| p.and_then(|p| p.replace)).map(|p| match p {
+            api::path_modifier::Replace::Full(path) => {
+                // TODO ensure path is valid.
+                Some(path)
+            }
+            api::path_modifier::Replace::Prefix(path) => {
+                // TODO ensure path is valid.
+                Some(path)
+            }
+        });
+
+        if (u16::MAX as u32) < rr.port {
+            return Err(RequestRedirectError::InvalidPort(rr.port));
+        }
+        let port = if rr.port == 0 {
+            None
+        } else {
+            Some(rr.port as u16)
+        };
+
+        let status = match rr.status {
+            None => None,
+            Some(s) => {
+                if s < 100 || 599 < s {
+                    return Err(RequestRedirectError::InvalidStatus(s));
+                }
+                Some(http::StatusCode::from_u16(s as u16))
+            }
+        };
+
+        Ok(RedirectRequest {
+            scheme,
+            host,
+            path,
+            port,
+            status,
+        })
     }
 }
