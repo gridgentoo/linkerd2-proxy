@@ -70,15 +70,15 @@ where
             let rsp = client.watch_port(tonic::Request::new(req)).await?;
             Ok(rsp.map(|updates| {
                 updates
-                    .map(|up| match ServerPolicy::try_from(up?) {
-                        Ok(policy) => {
-                            tracing::debug!(?policy);
-                            Ok(policy)
-                        }
-                        Err(e) => Err(tonic::Status::invalid_argument(&*format!(
-                            "received invalid policy: {}",
-                            e
-                        ))),
+                    .map(|up| {
+                        let policy = up?.try_into().map_err(|e| {
+                            tonic::Status::invalid_argument(&*format!(
+                                "received invalid policy: {}",
+                                e
+                            ))
+                        })?;
+                        tracing::debug!(?policy);
+                        Ok(policy)
                     })
                     .boxed()
             }))
