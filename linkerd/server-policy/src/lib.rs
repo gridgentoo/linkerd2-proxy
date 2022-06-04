@@ -6,7 +6,7 @@ mod authz;
 mod proto;
 
 pub use self::authz::{Authentication, Authorization, Network, Suffix};
-pub use linkerd_http_routes::{filter, HttpRoutes};
+pub use linkerd_http_route::{filter, HttpRoutes};
 use std::{sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -29,7 +29,7 @@ members = [
     "linkerd/http-classify",
     "linkerd/http-metrics",
     "linkerd/http-retry",
-    "linkerd/http-routes",
+    "linkerd/http-route",
     "linkerd/identity",
     "linkerd/io",
     "linkerd/meshtls",

@@ -1139,7 +1139,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "linkerd-http-routes"
+name = "linkerd-http-route"
 version = "0.1.0"
 dependencies = [
  "futures",
@@ -1481,7 +1481,7 @@ name = "linkerd-server-policy"
 version = "0.1.0"
 dependencies = [
  "ipnet",
- "linkerd-http-routes",
+ "linkerd-http-route",
  "linkerd2-proxy-api",
  "quickcheck",
  "thiserror",
