@@ -4,7 +4,7 @@
 mod authz;
 
 pub use self::authz::{Authentication, Authorization, Network, Suffix};
-pub use linkerd_http_routes::{filter, Routes};
+pub use linkerd_http_routes::{filter, HttpRoutes};
 use std::{sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum Protocol {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
     pub info_headers: bool,
-    pub routes: Routes<RoutePolicy>,
+    pub routes: HttpRoutes<RoutePolicy>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

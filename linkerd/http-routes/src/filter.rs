@@ -1,4 +1,4 @@
-use crate::{PathMatch, RouteMatch};
+use crate::{HttpRouteMatch, PathMatch};
 use http::{
     header::{HeaderName, HeaderValue},
     uri::{Authority, InvalidUri},
@@ -69,7 +69,7 @@ impl RedirectRequest {
     pub fn apply<T>(
         &self,
         orig_uri: &http::Uri,
-        rm: &RouteMatch,
+        rm: &HttpRouteMatch,
     ) -> Result<Redirection, InvalidRedirect> {
         let location = {
             let scheme = self

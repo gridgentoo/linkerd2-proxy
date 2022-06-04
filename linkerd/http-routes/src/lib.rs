@@ -1,3 +1,6 @@
+#![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
+#![forbid(unsafe_code)]
+
 pub mod filter;
 mod r#match;
 //pub mod service;
@@ -8,40 +11,40 @@ use std::sync::Arc;
 
 /// Holds all routes that may be considered for a given request.
 ///
-/// Routes are selected by finding the route that matches "most". When multiple
+/// HttpRoutes are selected by finding the route that matches "most". When multiple
 /// routes match equivalently, the first one is used.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Routes<T>(pub Arc<[Route<T>]>);
+pub struct HttpRoutes<T>(pub Arc<[HttpRoute<T>]>);
 
 ///
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub struct Route<T> {
+pub struct HttpRoute<T> {
     pub hosts: Vec<MatchHost>,
-    pub rules: Vec<Rule<T>>,
+    pub rules: Vec<HttpRule<T>>,
 }
 
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub struct Rule<T> {
+pub struct HttpRule<T> {
     pub matches: Vec<MatchRequest>,
     pub policy: T,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RouteMatch {
+pub struct HttpRouteMatch {
     host: Option<HostMatch>,
     request: RequestMatch,
 }
 
-// === impl Routes ===
+// === impl HttpRoutes ===
 
-impl<T> Default for Routes<T> {
+impl<T> Default for HttpRoutes<T> {
     fn default() -> Self {
         Self(Arc::new([]))
     }
 }
 
-impl<T> Routes<T> {
-    pub fn find<B>(&self, req: &http::Request<B>) -> Option<(RouteMatch, &T)> {
+impl<T> HttpRoutes<T> {
+    pub fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &T)> {
         self.0
             .iter()
             .filter_map(|rt| rt.find(req))
@@ -51,10 +54,10 @@ impl<T> Routes<T> {
     }
 }
 
-// === impl Route ===
+// === impl HttpRoute ===
 
-impl<T> Route<T> {
-    fn find<B>(&self, req: &http::Request<B>) -> Option<(RouteMatch, &T)> {
+impl<T> HttpRoute<T> {
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &T)> {
         let host = if self.hosts.is_empty() {
             None
         } else {
@@ -89,7 +92,7 @@ impl<T> Route<T> {
             // that the first match wins.
             .reduce(|(m0, p0), (m, p)| if m0 < m { (m, p) } else { (m0, p0) })?;
 
-        Some((RouteMatch { host, request }, policy))
+        Some((HttpRouteMatch { host, request }, policy))
     }
 }
 
@@ -113,21 +116,21 @@ mod tests {
     /// the wildcard.
     #[test]
     fn hostname_precedence() {
-        let rts = Routes(
+        let rts = HttpRoutes(
             vec![
-                Route {
+                HttpRoute {
                     hosts: vec!["*.example.com".parse().unwrap()],
-                    rules: vec![Rule {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             path: Some(MatchPath::Exact("/foo".to_string())),
                             ..MatchRequest::default()
                         }],
-                        ..Rule::default()
+                        ..HttpRule::default()
                     }],
                 },
-                Route {
+                HttpRoute {
                     hosts: vec!["foo.example.com".parse().unwrap()],
-                    rules: vec![Rule {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             path: Some(MatchPath::Exact("/foo".to_string())),
                             ..MatchRequest::default()
@@ -150,27 +153,27 @@ mod tests {
     #[test]
     fn path_length_precedence() {
         // Given two equivalent routes, choose the longer path match.
-        let rts = Routes(
+        let rts = HttpRoutes(
             vec![
-                Route {
-                    rules: vec![Rule {
+                HttpRoute {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             path: Some(MatchPath::Prefix("/foo".to_string())),
                             ..MatchRequest::default()
                         }],
-                        ..Rule::default()
+                        ..HttpRule::default()
                     }],
-                    ..Route::default()
+                    ..HttpRoute::default()
                 },
-                Route {
-                    rules: vec![Rule {
+                HttpRoute {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             path: Some(MatchPath::Exact("/foo/bar".to_string())),
                             ..MatchRequest::default()
                         }],
                         policy: Policy::Expected,
                     }],
-                    ..Route::default()
+                    ..HttpRoute::default()
                 },
             ]
             .into(),
@@ -188,10 +191,10 @@ mod tests {
     /// headers.
     #[test]
     fn header_count_precedence() {
-        let rts = Routes(
+        let rts = HttpRoutes(
             vec![
-                Route {
-                    rules: vec![Rule {
+                HttpRoute {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             headers: vec![
                                 MatchHeader::Exact(
@@ -205,12 +208,12 @@ mod tests {
                             ],
                             ..MatchRequest::default()
                         }],
-                        ..Rule::default()
+                        ..HttpRule::default()
                     }],
-                    ..Route::default()
+                    ..HttpRoute::default()
                 },
-                Route {
-                    rules: vec![Rule {
+                HttpRoute {
+                    rules: vec![HttpRule {
                         matches: vec![MatchRequest {
                             headers: vec![
                                 MatchHeader::Exact(
@@ -230,7 +233,7 @@ mod tests {
                         }],
                         policy: Policy::Expected,
                     }],
-                    ..Route::default()
+                    ..HttpRoute::default()
                 },
             ]
             .into(),
@@ -251,23 +254,23 @@ mod tests {
     /// headers.
     #[test]
     fn first_identical_wins() {
-        let rts = Routes(
+        let rts = HttpRoutes(
             vec![
-                Route {
+                HttpRoute {
                     rules: vec![
-                        Rule {
+                        HttpRule {
                             policy: Policy::Expected,
-                            ..Rule::default()
+                            ..HttpRule::default()
                         },
                         // Redundant rule.
-                        Rule::default(),
+                        HttpRule::default(),
                     ],
-                    ..Route::default()
+                    ..HttpRoute::default()
                 },
                 // Redundant unlabeled route.
-                Route {
-                    rules: vec![Rule::default()],
-                    ..Route::default()
+                HttpRoute {
+                    rules: vec![HttpRule::default()],
+                    ..HttpRoute::default()
                 },
             ]
             .into(),
