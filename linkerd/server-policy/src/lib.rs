@@ -2,6 +2,8 @@
 #![forbid(unsafe_code)]
 
 mod authz;
+#[cfg(feature = "proto")]
+mod proto;
 
 pub use self::authz::{Authentication, Authorization, Network, Suffix};
 pub use linkerd_http_routes::{filter, HttpRoutes};
@@ -23,14 +25,16 @@ pub enum Protocol {
     },
     Http1(HttpConfig),
     Http2(HttpConfig),
-    Grpc(HttpConfig),
+    Grpc {
+        disable_info_headers: bool,
+    },
     Opaque,
     Tls,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
-    pub info_headers: bool,
+    pub disable_info_headers: bool,
     pub routes: HttpRoutes<RoutePolicy>,
 }
 

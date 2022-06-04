@@ -6,9 +6,14 @@ license = "Apache-2.0"
 edition = "2021"
 publish = false
 
+[features]
+proto = ["linkerd2-proxy-api"]
+
 [dependencies]
-linkerd-http-routes = { path = "../http-routes" }
 ipnet = "2"
+linkerd-http-routes = { path = "../http-routes" }
+linkerd2-proxy-api = { version = "0.5", features = ["inbound"], optional = true }
+thiserror = "1"
 
 [dev-dependencies]
 quickcheck = { version = "1", default-features = false }
