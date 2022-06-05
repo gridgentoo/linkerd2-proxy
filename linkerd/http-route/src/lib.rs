@@ -5,20 +5,21 @@ pub mod filter;
 mod r#match;
 #[cfg(feature = "proto")]
 pub mod proto;
-//pub mod service;
+pub mod service;
 
 use self::r#match::{HostMatch, PathMatch, RequestMatch};
 pub use self::r#match::{MatchHost, MatchRequest};
-use std::sync::Arc;
 
-/// Holds all routes that may be considered for a given request.
-///
-/// HttpRoutes are selected by finding the route that matches "most". When multiple
-/// routes match equivalently, the first one is used.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct HttpRoutes<T>(pub Arc<[HttpRoute<T>]>);
+pub trait ApplyRoute {
+    type Error;
 
-///
+    fn apply_route<B>(
+        &self,
+        rt_match: HttpRouteMatch,
+        req: &mut http::Request<B>,
+    ) -> Result<(), Self::Error>;
+}
+
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct HttpRoute<T> {
     pub hosts: Vec<MatchHost>,
@@ -37,29 +38,39 @@ pub struct HttpRouteMatch {
     request: RequestMatch,
 }
 
-// === impl HttpRoutes ===
+#[derive(Debug, thiserror::Error)]
+pub enum RouteError<E> {
+    /// Indicates that a route failed to process the request.
+    #[error("{0}")]
+    Failed(#[source] E),
 
-impl<T> Default for HttpRoutes<T> {
-    fn default() -> Self {
-        Self(Arc::new([]))
-    }
+    /// Indicates that no route could be found (so no request modifications were
+    /// performed).
+    #[error("no route found")]
+    NotFound,
 }
 
-impl<T> FromIterator<HttpRoute<T>> for HttpRoutes<T> {
-    fn from_iter<I: IntoIterator<Item = HttpRoute<T>>>(iter: I) -> Self {
-        Self(iter.into_iter().collect::<Arc<[_]>>())
-    }
+pub fn find<'t, T, B>(
+    routes: impl IntoIterator<Item = &'t HttpRoute<T>>,
+    req: &http::Request<B>,
+) -> Option<(HttpRouteMatch, &'t T)> {
+    routes
+        .into_iter()
+        .filter_map(|rt| rt.find(req))
+        // This is roughly equivalent to `max_by(...)` but we want to ensure
+        // that the first match wins.
+        .reduce(|(m0, t0), (m, t)| if m0 < m { (m, t) } else { (m0, t0) })
 }
 
-impl<T> HttpRoutes<T> {
-    pub fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &T)> {
-        self.0
-            .iter()
-            .filter_map(|rt| rt.find(req))
-            // This is roughly equivalent to `max_by(...)` but we want to ensure
-            // that the first match wins.
-            .reduce(|(m0, t0), (m, t)| if m0 < m { (m, t) } else { (m0, t0) })
-    }
+pub fn find_and_apply<'t, T: 't, B>(
+    routes: impl IntoIterator<Item = &'t HttpRoute<T>>,
+    req: &mut http::Request<B>,
+) -> Result<(), RouteError<T::Error>>
+where
+    T: ApplyRoute,
+{
+    let (m, rt) = find(routes, req).ok_or(RouteError::NotFound)?;
+    rt.apply_route(m, req).map_err(RouteError::Failed)
 }
 
 // === impl HttpRoute ===
@@ -124,74 +135,68 @@ mod tests {
     /// the wildcard.
     #[test]
     fn hostname_precedence() {
-        let rts = HttpRoutes(
-            vec![
-                HttpRoute {
-                    hosts: vec!["*.example.com".parse().unwrap()],
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            path: Some(MatchPath::Exact("/foo".to_string())),
-                            ..MatchRequest::default()
-                        }],
-                        ..HttpRule::default()
+        let rts = vec![
+            HttpRoute {
+                hosts: vec!["*.example.com".parse().unwrap()],
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        path: Some(MatchPath::Exact("/foo".to_string())),
+                        ..MatchRequest::default()
                     }],
-                },
-                HttpRoute {
-                    hosts: vec!["foo.example.com".parse().unwrap()],
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            path: Some(MatchPath::Exact("/foo".to_string())),
-                            ..MatchRequest::default()
-                        }],
-                        policy: Policy::Expected,
+                    ..HttpRule::default()
+                }],
+            },
+            HttpRoute {
+                hosts: vec!["foo.example.com".parse().unwrap()],
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        path: Some(MatchPath::Exact("/foo".to_string())),
+                        ..MatchRequest::default()
                     }],
-                },
-            ]
-            .into(),
-        );
+                    policy: Policy::Expected,
+                }],
+            },
+        ];
 
         let req = http::Request::builder()
             .uri("http://foo.example.com/foo")
             .body(())
             .unwrap();
-        let (_, policy) = rts.find(&req).expect("must match");
+        let (_, policy) = find(&rts, &req).expect("must match");
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 
     #[test]
     fn path_length_precedence() {
         // Given two equivalent routes, choose the longer path match.
-        let rts = HttpRoutes(
-            vec![
-                HttpRoute {
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            path: Some(MatchPath::Prefix("/foo".to_string())),
-                            ..MatchRequest::default()
-                        }],
-                        ..HttpRule::default()
+        let rts = vec![
+            HttpRoute {
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        path: Some(MatchPath::Prefix("/foo".to_string())),
+                        ..MatchRequest::default()
                     }],
-                    ..HttpRoute::default()
-                },
-                HttpRoute {
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            path: Some(MatchPath::Exact("/foo/bar".to_string())),
-                            ..MatchRequest::default()
-                        }],
-                        policy: Policy::Expected,
+                    ..HttpRule::default()
+                }],
+                ..HttpRoute::default()
+            },
+            HttpRoute {
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        path: Some(MatchPath::Exact("/foo/bar".to_string())),
+                        ..MatchRequest::default()
                     }],
-                    ..HttpRoute::default()
-                },
-            ]
-            .into(),
-        );
+                    policy: Policy::Expected,
+                }],
+                ..HttpRoute::default()
+            },
+        ];
 
         let req = http::Request::builder()
             .uri("http://foo.example.com/foo/bar")
             .body(())
             .unwrap();
-        let (_, policy) = rts.find(&req).expect("must match");
+        let (_, policy) = find(&rts, &req).expect("must match");
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 
@@ -199,53 +204,35 @@ mod tests {
     /// headers.
     #[test]
     fn header_count_precedence() {
-        let rts = HttpRoutes(
-            vec![
-                HttpRoute {
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            headers: vec![
-                                MatchHeader::Exact(
-                                    "x-foo".parse().unwrap(),
-                                    "bar".parse().unwrap(),
-                                ),
-                                MatchHeader::Exact(
-                                    "x-baz".parse().unwrap(),
-                                    "qux".parse().unwrap(),
-                                ),
-                            ],
-                            ..MatchRequest::default()
-                        }],
-                        ..HttpRule::default()
+        let rts = vec![
+            HttpRoute {
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        headers: vec![
+                            MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
+                            MatchHeader::Exact("x-baz".parse().unwrap(), "qux".parse().unwrap()),
+                        ],
+                        ..MatchRequest::default()
                     }],
-                    ..HttpRoute::default()
-                },
-                HttpRoute {
-                    rules: vec![HttpRule {
-                        matches: vec![MatchRequest {
-                            headers: vec![
-                                MatchHeader::Exact(
-                                    "x-foo".parse().unwrap(),
-                                    "bar".parse().unwrap(),
-                                ),
-                                MatchHeader::Exact(
-                                    "x-baz".parse().unwrap(),
-                                    "qux".parse().unwrap(),
-                                ),
-                                MatchHeader::Exact(
-                                    "x-biz".parse().unwrap(),
-                                    "qyx".parse().unwrap(),
-                                ),
-                            ],
-                            ..MatchRequest::default()
-                        }],
-                        policy: Policy::Expected,
+                    ..HttpRule::default()
+                }],
+                ..HttpRoute::default()
+            },
+            HttpRoute {
+                rules: vec![HttpRule {
+                    matches: vec![MatchRequest {
+                        headers: vec![
+                            MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
+                            MatchHeader::Exact("x-baz".parse().unwrap(), "qux".parse().unwrap()),
+                            MatchHeader::Exact("x-biz".parse().unwrap(), "qyx".parse().unwrap()),
+                        ],
+                        ..MatchRequest::default()
                     }],
-                    ..HttpRoute::default()
-                },
-            ]
-            .into(),
-        );
+                    policy: Policy::Expected,
+                }],
+                ..HttpRoute::default()
+            },
+        ];
 
         let req = http::Request::builder()
             .uri("http://www.example.com")
@@ -254,7 +241,7 @@ mod tests {
             .header("x-biz", "qyx")
             .body(())
             .unwrap();
-        let (_, policy) = rts.find(&req).expect("must match");
+        let (_, policy) = find(&rts, &req).expect("must match");
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 
@@ -262,31 +249,27 @@ mod tests {
     /// headers.
     #[test]
     fn first_identical_wins() {
-        let rts = HttpRoutes(
-            vec![
-                HttpRoute {
-                    rules: vec![
-                        HttpRule {
-                            policy: Policy::Expected,
-                            ..HttpRule::default()
-                        },
-                        // Redundant rule.
-                        HttpRule::default(),
-                    ],
-                    ..HttpRoute::default()
-                },
-                // Redundant route.
-                HttpRoute {
-                    rules: vec![HttpRule::default()],
-                    ..HttpRoute::default()
-                },
-            ]
-            .into(),
-        );
+        let rts = vec![
+            HttpRoute {
+                rules: vec![
+                    HttpRule {
+                        policy: Policy::Expected,
+                        ..HttpRule::default()
+                    },
+                    // Redundant rule.
+                    HttpRule::default(),
+                ],
+                ..HttpRoute::default()
+            },
+            // Redundant route.
+            HttpRoute {
+                rules: vec![HttpRule::default()],
+                ..HttpRoute::default()
+            },
+        ];
 
-        let (_, policy) = rts
-            .find(&http::Request::builder().body(()).unwrap())
-            .expect("must match");
+        let req = http::Request::builder().body(()).unwrap();
+        let (_, policy) = find(&rts, &req).expect("must match");
         assert_eq!(*policy, Policy::Expected, "incorrect rule matched");
     }
 }
