@@ -253,21 +253,22 @@ impl HttpConfig {
             .map(MatchRequest::try_from)
             .collect::<Result<Vec<_>, RouteMatchError>>()?;
 
-        let filters = proto
-            .filters
-            .into_iter()
-            .map(|f| match f.kind.ok_or(Error::MissingFilter)? {
-                filter::Kind::RequestHeaderModifier(rhm) => {
-                    Ok(RouteFilter::RequestHeaders(rhm.try_into()?))
-                }
-                filter::Kind::RequestRedirect(rr) => Ok(RouteFilter::Redirect(rr.try_into()?)),
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-
-        let policy = RoutePolicy {
-            authorizations,
-            filters,
-            labels,
+        let policy = {
+            let filters = proto
+                .filters
+                .into_iter()
+                .map(|f| match f.kind.ok_or(Error::MissingFilter)? {
+                    filter::Kind::RequestHeaderModifier(rhm) => {
+                        Ok(RouteFilter::RequestHeaders(rhm.try_into()?))
+                    }
+                    filter::Kind::RequestRedirect(rr) => Ok(RouteFilter::Redirect(rr.try_into()?)),
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            RoutePolicy {
+                authorizations,
+                filters,
+                labels,
+            }
         };
 
         Ok(HttpRule { matches, policy })
