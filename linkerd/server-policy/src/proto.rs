@@ -11,6 +11,7 @@ use std::{net::IpAddr, sync::Arc};
 pub enum Error {
     #[error("protocol missing detect timeout")]
     MissingDetectTimeout,
+
     #[error("protocol has a negative detect timeout: {0:?}")]
     NegativeDetectTimeout(time::Duration),
 
