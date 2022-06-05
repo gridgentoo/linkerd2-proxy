@@ -27,6 +27,7 @@ pub enum Protocol {
     Http2(HttpConfig),
     Grpc {
         disable_info_headers: bool,
+        // TODO gRPC routes https://gateway-api.sigs.k8s.io/geps/gep-1016/
     },
     Opaque,
     Tls,
