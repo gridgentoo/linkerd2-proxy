@@ -16,12 +16,12 @@ pub struct RedirectRequest {
     pub scheme: Option<http::uri::Scheme>,
     pub host: Option<String>,
     pub port: Option<u16>,
-    pub path: Option<PathModifier>,
+    pub path: Option<ModifyPath>,
     pub status: Option<http::StatusCode>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum PathModifier {
+pub enum ModifyPath {
     ReplaceFullPath(String),
     ReplacePrefixMatch(String),
 }
@@ -96,8 +96,8 @@ impl RedirectRequest {
                 let path = orig_uri.path();
                 match &self.path {
                     None => path.to_string(),
-                    Some(PathModifier::ReplaceFullPath(p)) => p.clone(),
-                    Some(PathModifier::ReplacePrefixMatch(new_pfx)) => match rm.request.path() {
+                    Some(ModifyPath::ReplaceFullPath(p)) => p.clone(),
+                    Some(ModifyPath::ReplacePrefixMatch(new_pfx)) => match rm.request.path() {
                         PathMatch::Prefix(pfx_len) if *pfx_len <= path.len() => {
                             let (_, rest) = path.split_at(*pfx_len);
                             format!("{}{}", new_pfx, rest)

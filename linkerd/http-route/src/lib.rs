@@ -45,6 +45,12 @@ impl<T> Default for HttpRoutes<T> {
     }
 }
 
+impl<T> FromIterator<HttpRoute<T>> for HttpRoutes<T> {
+    fn from_iter<I: IntoIterator<Item = HttpRoute<T>>>(iter: I) -> Self {
+        Self(iter.into_iter().collect::<Arc<[_]>>())
+    }
+}
+
 impl<T> HttpRoutes<T> {
     pub fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &T)> {
         self.0
@@ -269,7 +275,7 @@ mod tests {
                     ],
                     ..HttpRoute::default()
                 },
-                // Redundant unlabeled route.
+                // Redundant route.
                 HttpRoute {
                     rules: vec![HttpRule::default()],
                     ..HttpRoute::default()

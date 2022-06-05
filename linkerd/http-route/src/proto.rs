@@ -1,5 +1,5 @@
 use crate::{
-    filter::{ModifyRequestHeader, PathModifier, RedirectRequest},
+    filter::{ModifyPath, ModifyRequestHeader, RedirectRequest},
     r#match::{MatchHeader, MatchPath, MatchQueryParam, MatchRequest},
     MatchHost,
 };
@@ -177,8 +177,14 @@ impl TryFrom<api::RequestHeaderModifier> for ModifyRequestHeader {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RequestRedirectError {
+    #[error("invalid location scheme: {0}")]
+    InvalidScheme(#[from] http_types::InvalidScheme),
+
     #[error("invalid HTTP status code: {0}")]
-    InvalidStatus(u32),
+    InvalidStatus(#[from] http::status::InvalidStatusCode),
+
+    #[error("invalid HTTP status code: {0}")]
+    InvalidStatusNonU16(u32),
 
     #[error("invalid port number: {0}")]
     InvalidPort(u32),
@@ -191,7 +197,10 @@ impl TryFrom<api::RequestRedirect> for RedirectRequest {
     type Error = RequestRedirectError;
 
     fn try_from(rr: api::RequestRedirect) -> Result<Self, Self::Error> {
-        let scheme = rr.scheme.and_then(|s| s.into_http());
+        let scheme = match rr.scheme {
+            None => None,
+            Some(s) => Some(s.try_into()?),
+        };
 
         let host = if rr.host.is_empty() {
             None
@@ -200,34 +209,32 @@ impl TryFrom<api::RequestRedirect> for RedirectRequest {
             Some(rr.host)
         };
 
-        let path = rr.path.map(|p| p.and_then(|p| p.replace)).map(|p| match p {
+        let path = rr.path.and_then(|p| p.replace).map(|p| match p {
             api::path_modifier::Replace::Full(path) => {
                 // TODO ensure path is valid.
-                Some(path)
+                ModifyPath::ReplaceFullPath(path)
             }
-            api::path_modifier::Replace::Prefix(path) => {
-                // TODO ensure path is valid.
-                Some(path)
+            api::path_modifier::Replace::Prefix(prefix) => {
+                // TODO ensure prefix is valid.
+                ModifyPath::ReplacePrefixMatch(prefix)
             }
         });
 
-        if (u16::MAX as u32) < rr.port {
-            return Err(RequestRedirectError::InvalidPort(rr.port));
-        }
-        let port = if rr.port == 0 {
-            None
-        } else {
-            Some(rr.port as u16)
+        let port = {
+            if rr.port > (u16::MAX as u32) {
+                return Err(RequestRedirectError::InvalidPort(rr.port));
+            }
+            if rr.port == 0 {
+                None
+            } else {
+                Some(rr.port as u16)
+            }
         };
 
         let status = match rr.status {
-            None => None,
-            Some(s) => {
-                if s < 100 || 599 < s {
-                    return Err(RequestRedirectError::InvalidStatus(s));
-                }
-                Some(http::StatusCode::from_u16(s as u16))
-            }
+            0 => None,
+            s if 100 >= s || s < 600 => Some(http::StatusCode::from_u16(s as u16)?),
+            s => return Err(RequestRedirectError::InvalidStatusNonU16(s)),
         };
 
         Ok(RedirectRequest {

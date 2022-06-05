@@ -12,7 +12,7 @@ use std::{sync::Arc, time};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerPolicy {
     pub protocol: Protocol,
-    pub authorizations: Vec<Authorization>,
+    pub authorizations: Arc<[Authorization]>,
     pub kind: Arc<str>,
     pub name: Arc<str>,
 }
@@ -38,11 +38,18 @@ pub struct HttpConfig {
     pub routes: HttpRoutes<RoutePolicy>,
 }
 
+pub type HttpRoute = linkerd_http_route::HttpRoute<RoutePolicy>;
+
+pub type HttpRule = linkerd_http_route::HttpRule<RoutePolicy>;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RoutePolicy {
     pub authorizations: Arc<[Authorization]>,
     pub filters: Vec<RouteFilter>,
+    pub labels: Labels,
 }
+
+pub type Labels = Arc<[(String, String)]>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RouteFilter {
