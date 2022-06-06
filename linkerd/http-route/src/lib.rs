@@ -5,7 +5,6 @@ pub mod filter;
 mod r#match;
 #[cfg(feature = "proto")]
 pub mod proto;
-pub mod service;
 
 use self::r#match::{HostMatch, PathMatch, RequestMatch};
 pub use self::r#match::{MatchHost, MatchRequest};

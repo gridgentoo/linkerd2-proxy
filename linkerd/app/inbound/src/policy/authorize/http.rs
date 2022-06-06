@@ -1,12 +1,21 @@
+#![allow(dead_code)] // FIXME
+
 use crate::metrics::authz::HttpAuthzMetrics;
 
 use super::super::{AllowPolicy, Permit};
-use futures::{future, TryFutureExt};
+use futures::future;
 use linkerd_app_core::{
-    svc::{self, ServiceExt},
-    tls,
+    svc, tls,
     transport::{ClientAddr, Remote},
     Error,
+};
+use linkerd_server_policy::{
+    self as policy,
+    http_route::{
+        self,
+        filter::{InvalidRedirect, Redirection},
+        /* HttpRouteMatch, */
+    },
 };
 use std::task;
 
@@ -31,6 +40,18 @@ pub struct AuthorizeHttp<T, N> {
     policy: AllowPolicy,
     metrics: HttpAuthzMetrics,
     inner: N,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RouteError {
+    #[error("no route found for request")]
+    NotFound,
+
+    #[error("invalid redirect: {0}")]
+    InvalidRedirect(#[from] InvalidRedirect),
+
+    #[error("request redirected")]
+    Redirect(Redirection),
 }
 
 // === impl NewAuthorizeHttp ===
@@ -70,17 +91,17 @@ where
 
 // === impl AuthorizeHttp ===
 
-impl<Req, T, N, S> svc::Service<Req> for AuthorizeHttp<T, N>
+impl<B, T, N, S> svc::Service<http::Request<B>> for AuthorizeHttp<T, N>
 where
     T: Clone,
     N: svc::NewService<(Permit, T), Service = S>,
-    S: svc::Service<Req>,
+    S: svc::Service<http::Request<B>>,
     S::Error: Into<Error>,
 {
     type Response = S::Response;
     type Error = Error;
     type Future = future::Either<
-        future::ErrInto<svc::stack::Oneshot<S, Req>, Error>,
+        future::ErrInto<svc::stack::Oneshot<S, http::Request<B>>, Error>,
         future::Ready<Result<Self::Response, Error>>,
     >;
 
@@ -89,99 +110,71 @@ where
         task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Req) -> Self::Future {
-        tracing::trace!(policy = ?self.policy, "Authorizing request");
-        match self.policy.check_authorized(self.client_addr, &self.tls) {
-            Ok(permit) => {
-                tracing::debug!(
-                    ?permit,
-                    tls = ?self.tls,
-                    client = %self.client_addr,
-                    "Request authorized",
-                );
-                self.metrics.allow(&permit, self.tls.clone());
-                let svc = self.inner.new_service((permit, self.target.clone()));
-                future::Either::Left(svc.oneshot(req).err_into::<Error>())
+    fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
+        let routes = self.policy.http_routes();
+        let (rt_match, route) =
+            match http_route::find(routes.as_deref().into_iter().flatten(), &req) {
+                Some(rt) => rt,
+                None => return future::Either::Right(future::err(RouteError::NotFound.into())),
+            };
+
+        let _authz = match route
+            .authorizations
+            .iter()
+            .find(|a| super::super::is_authorized(a, self.client_addr, &self.tls))
+        {
+            Some(authz) => authz,
+            None => {
+                // tracing::info!(
+                //     server = %format_args!("{}:{}", self.policy.server_label().kind, self.policy.server_label().name),
+                //     tls = ?self.tls,
+                //     client = %self.client_addr,
+                //     "Request denied",
+                // );
+                // self.metrics.deny(&self.policy, self.tls.clone());
+                // return future::Either::Right(future::err(e.into()))
+                todo!()
             }
-            Err(e) => {
-                tracing::info!(
-                    server = %format_args!("{}:{}", self.policy.server_label().kind, self.policy.server_label().name),
-                    tls = ?self.tls,
-                    client = %self.client_addr,
-                    "Request denied",
-                );
-                self.metrics.deny(&self.policy, self.tls.clone());
-                future::Either::Right(future::err(e.into()))
-            }
-        }
-    }
-}
+        };
+        // TODO permit, metrics, etc..
 
-/*
-use linkerd_http_route::{
-    filter::{InvalidRedirect, ModifyRequestHeader, Redirection},
-    service::Routes,
-    ApplyRoute, HttpRouteMatch,
-};
-
-#[derive(Debug, thiserror::Error)]
-pub enum RouteError {
-    #[error("invalid redirect: {0}")]
-    InvalidRedirect(#[from] InvalidRedirect),
-
-    #[error("request redirected")]
-    Redirect(Redirection),
-}
-
-
-// === impl HttpConfig ===
-
-impl Routes for HttpConfig {
-    type Route = RoutePolicy;
-    type Error = RouteError;
-
-    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &RoutePolicy)> {
-        linkerd_http_route::find(&*self.routes, req)
-    }
-
-    fn apply<B>(&self, route: &Self::Route, req: &mut http::Request<B>) -> Result<(), Self::Error> {
-        todo!()
-    }
-}
-
-// === impl RoutePolicy ===
-
-impl ApplyRoute for RoutePolicy {
-    type Error = RouteError;
-
-    fn apply_route<B>(
-        &self,
-        rm: HttpRouteMatch,
-        req: &mut http::Request<B>,
-    ) -> Result<(), RouteError> {
-        // TODO use request extensions to find client information.
-        for authz in &*self.authorizations {
-            let _ = authz;
-        }
-
-        for filter in &self.filters {
+        for filter in &route.filters {
             match filter {
-                RouteFilter::RequestHeaders(rh) => {
+                policy::RouteFilter::RequestHeaders(rh) => {
                     rh.apply(req.headers_mut());
                 }
-                RouteFilter::Redirect(redir) => {
-                    let redirection = redir.apply(req.uri(), &rm)?;
-                    return Err(RouteError::Redirect(redirection));
-                }
-                RouteFilter::Unknown => {
+                policy::RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
+                    Ok(redirection) => {
+                        return future::Either::Right(future::err(
+                            RouteError::Redirect(redirection).into(),
+                        ))
+                    }
+                    Err(invalid) => {
+                        return future::Either::Right(future::err(
+                            RouteError::InvalidRedirect(invalid).into(),
+                        ))
+                    }
+                },
+                policy::RouteFilter::Unknown => {
                     // XXX should we throw an error? log a warning?
                 }
             }
         }
 
-        req.extensions_mut().insert(self.labels.clone());
-
-        Ok(())
+        // tracing::trace!(policy = ?self.policy, "Authorizing request");
+        // match self.policy.check_authorized(self.client_addr, &self.tls) {
+        //     Ok(permit) => {
+        //         tracing::debug!(
+        //             ?permit,
+        //             tls = ?self.tls,
+        //             client = %self.client_addr,
+        //             "Request authorized",
+        //         );
+        //         self.metrics.allow(&permit, self.tls.clone());
+        //         let svc = self.inner.new_service((permit, self.target.clone()));
+        //         future::Either::Left(svc.oneshot(req).err_into::<Error>())
+        //     }
+        // }
+        todo!()
     }
 }
-*/

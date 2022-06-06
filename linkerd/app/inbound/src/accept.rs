@@ -132,7 +132,8 @@ mod tests {
                     networks: vec![Default::default()],
                     kind: "serverauthorization".into(),
                     name: "testsaz".into(),
-                }],
+                }]
+                .into(),
                 kind: "server".into(),
                 name: "testsrv".into(),
             },

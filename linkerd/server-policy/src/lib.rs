@@ -39,10 +39,10 @@ pub enum Protocol {
     Tls,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
     pub disable_info_headers: bool,
-    pub routes: Vec<HttpRoute>,
+    pub routes: Arc<[HttpRoute]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -84,5 +84,16 @@ impl std::ops::Deref for RouteLabels {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+// === impl HttpConfig ===
+
+impl Default for HttpConfig {
+    fn default() -> Self {
+        Self {
+            disable_info_headers: false,
+            routes: vec![].into(),
+        }
     }
 }

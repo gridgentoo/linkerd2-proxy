@@ -14,7 +14,8 @@ async fn unauthenticated_allowed() {
             networks: vec!["192.0.2.0/24".parse().unwrap()],
             kind: "serverauthorization".into(),
             name: "unauth".into(),
-        }],
+        }]
+        .into(),
         kind: "server".into(),
         name: "test".into(),
     };
@@ -56,7 +57,8 @@ async fn authenticated_identity() {
             networks: vec!["192.0.2.0/24".parse().unwrap()],
             kind: "serverauthorization".into(),
             name: "tls-auth".into(),
-        }],
+        }]
+        .into(),
         kind: "server".into(),
         name: "test".into(),
     };
@@ -113,7 +115,8 @@ async fn authenticated_suffix() {
             networks: vec!["192.0.2.0/24".parse().unwrap()],
             kind: "serverauthorization".into(),
             name: "tls-auth".into(),
-        }],
+        }]
+        .into(),
         kind: "server".into(),
         name: "test".into(),
     };
@@ -166,7 +169,8 @@ async fn tls_unauthenticated() {
             networks: vec!["192.0.2.0/24".parse().unwrap()],
             kind: "serverauthorization".into(),
             name: "tls-unauth".into(),
-        }],
+        }]
+        .into(),
         kind: "server".into(),
         name: "test".into(),
     };

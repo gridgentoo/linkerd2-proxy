@@ -612,7 +612,8 @@ impl svc::Param<policy::AllowPolicy> for Target {
                     networks: vec![std::net::IpAddr::from([192, 0, 2, 3]).into()],
                     kind: "serverauthorization".into(),
                     name: "testsaz".into(),
-                }],
+                }]
+                .into(),
                 kind: "server".into(),
                 name: "testsrv".into(),
             },

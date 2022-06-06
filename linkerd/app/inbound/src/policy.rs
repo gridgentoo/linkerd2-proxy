@@ -17,7 +17,10 @@ use linkerd_app_core::{
     Result,
 };
 use linkerd_cache::Cached;
-pub use linkerd_server_policy::{Authentication, Authorization, Protocol, ServerPolicy, Suffix};
+pub use linkerd_server_policy::{
+    self as policy, Authentication, Authorization, Protocol, ServerPolicy, Suffix,
+};
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::watch;
 
@@ -67,7 +70,7 @@ impl From<DefaultPolicy> for ServerPolicy {
             DefaultPolicy::Allow(p) => p,
             DefaultPolicy::Deny => ServerPolicy {
                 protocol: Protocol::Opaque,
-                authorizations: vec![],
+                authorizations: vec![].into(),
                 kind: "default".into(),
                 name: "deny".into(),
             },
@@ -115,6 +118,16 @@ impl AllowPolicy {
         }
     }
 
+    fn http_routes(&self) -> Option<Arc<[policy::HttpRoute]>> {
+        let borrow = self.server.borrow();
+        match &borrow.protocol {
+            Protocol::Detect { http, .. } | Protocol::Http1(http) | Protocol::Http2(http) => {
+                Some(http.routes.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// Checks whether the server has any authorizations at all. If it does not,
     /// a denial error is returned.
     pub(crate) fn check_port_allowed(self) -> Result<Self, DeniedUnauthorized> {
@@ -140,38 +153,8 @@ impl AllowPolicy {
     ) -> Result<Permit, DeniedUnauthorized> {
         let server = self.server.borrow();
         for authz in server.authorizations.iter() {
-            if authz.networks.iter().any(|n| n.contains(&client_addr.ip())) {
-                match authz.authentication {
-                    Authentication::Unauthenticated => {
-                        return Ok(Permit::new(self.dst, &*server, authz));
-                    }
-
-                    Authentication::TlsUnauthenticated => {
-                        if let tls::ConditionalServerTls::Some(tls::ServerTls::Established {
-                            ..
-                        }) = tls
-                        {
-                            return Ok(Permit::new(self.dst, &*server, authz));
-                        }
-                    }
-
-                    Authentication::TlsAuthenticated {
-                        ref identities,
-                        ref suffixes,
-                    } => {
-                        if let tls::ConditionalServerTls::Some(tls::ServerTls::Established {
-                            client_id: Some(tls::server::ClientId(ref id)),
-                            ..
-                        }) = tls
-                        {
-                            if identities.contains(id.as_str())
-                                || suffixes.iter().any(|s| s.contains(id.as_str()))
-                            {
-                                return Ok(Permit::new(self.dst, &*server, authz));
-                            }
-                        }
-                    }
-                }
+            if is_authorized(authz, client_addr, tls) {
+                return Ok(Permit::new(self.dst, &*server, authz));
             }
         }
 
@@ -179,6 +162,40 @@ impl AllowPolicy {
             kind: server.kind.clone(),
             name: server.name.clone(),
         })
+    }
+}
+
+fn is_authorized(
+    authz: &Authorization,
+    client_addr: Remote<ClientAddr>,
+    tls: &tls::ConditionalServerTls,
+) -> bool {
+    if !authz.networks.iter().any(|n| n.contains(&client_addr.ip())) {
+        return false;
+    }
+
+    match authz.authentication {
+        Authentication::Unauthenticated => true,
+
+        Authentication::TlsUnauthenticated => {
+            matches!(
+                tls,
+                tls::ConditionalServerTls::Some(tls::ServerTls::Established { .. })
+            )
+        }
+
+        Authentication::TlsAuthenticated {
+            ref identities,
+            ref suffixes,
+        } => match tls {
+            tls::ConditionalServerTls::Some(tls::ServerTls::Established {
+                client_id: Some(tls::server::ClientId(ref id)),
+                ..
+            }) => {
+                identities.contains(id.as_str()) || suffixes.iter().any(|s| s.contains(id.as_str()))
+            }
+            _ => false,
+        },
     }
 }
 

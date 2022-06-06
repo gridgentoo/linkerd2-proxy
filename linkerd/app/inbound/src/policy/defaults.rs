@@ -70,7 +70,8 @@ fn mk(
             authentication,
             kind: "default".into(),
             name: name.into(),
-        }],
+        }]
+        .into(),
         kind: "default".into(),
         name: name.into(),
     }

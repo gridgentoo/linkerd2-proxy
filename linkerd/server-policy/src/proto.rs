@@ -236,7 +236,7 @@ impl HttpConfig {
         let routes = routes
             .into_iter()
             .map(Self::try_route)
-            .collect::<Result<Vec<HttpRoute>, HttpRouteError>>()?;
+            .collect::<Result<Arc<[HttpRoute]>, HttpRouteError>>()?;
         Ok(HttpConfig {
             disable_info_headers,
             routes,

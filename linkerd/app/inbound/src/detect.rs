@@ -471,7 +471,8 @@ mod tests {
                     networks: vec![client_addr().ip().into()],
                     kind: "serverathorizationu".into(),
                     name: "testsaz".into(),
-                }],
+                }]
+                .into(),
                 kind: "server".into(),
                 name: "testsrv".into(),
             },
