@@ -1,4 +1,4 @@
-use crate::policy::{AllowPolicy, Permit};
+use crate::policy::{self, AllowPolicy, Permit};
 use linkerd_app_core::{
     metrics::{metrics, AuthzLabels, Counter, FmtMetrics, ServerLabel, TargetAddr, TlsAccept},
     tls,
@@ -47,7 +47,7 @@ struct TcpInner {
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct SrvKey {
     target: TargetAddr,
-    server: ServerLabel,
+    labels: Arc<policy::Labels>,
     tls: tls::ConditionalServerTls,
 }
 

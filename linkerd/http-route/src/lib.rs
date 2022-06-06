@@ -9,17 +9,7 @@ pub mod proto;
 use self::r#match::{HostMatch, PathMatch, RequestMatch};
 pub use self::r#match::{MatchHost, MatchRequest};
 
-pub trait ApplyRoute {
-    type Error;
-
-    fn apply_route<B>(
-        &self,
-        rt_match: HttpRouteMatch,
-        req: &mut http::Request<B>,
-    ) -> Result<(), Self::Error>;
-}
-
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct HttpRoute<T> {
     pub hosts: Vec<MatchHost>,
     pub rules: Vec<HttpRule<T>>,
@@ -121,6 +111,8 @@ mod tests {
                     }],
                     ..HttpRule::default()
                 }],
+                name: "example-wildcard".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 hosts: vec!["foo.example.com".parse().unwrap()],
@@ -131,6 +123,8 @@ mod tests {
                     }],
                     policy: Policy::Expected,
                 }],
+                name: "example-foo".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -154,7 +148,9 @@ mod tests {
                     }],
                     ..HttpRule::default()
                 }],
-                ..HttpRoute::default()
+                hosts: vec![],
+                name: "foo-prefix".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 rules: vec![HttpRule {
@@ -164,7 +160,9 @@ mod tests {
                     }],
                     policy: Policy::Expected,
                 }],
-                ..HttpRoute::default()
+                hosts: vec![],
+                name: "foo-bar".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -192,7 +190,9 @@ mod tests {
                     }],
                     ..HttpRule::default()
                 }],
-                ..HttpRoute::default()
+                hosts: vec![],
+                name: "headers-2".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 rules: vec![HttpRule {
@@ -206,7 +206,9 @@ mod tests {
                     }],
                     policy: Policy::Expected,
                 }],
-                ..HttpRoute::default()
+                hosts: vec![],
+                name: "headers-3".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -235,12 +237,18 @@ mod tests {
                     // Redundant rule.
                     HttpRule::default(),
                 ],
-                ..HttpRoute::default()
+                hosts: vec![],
+                name: "nop-expected".into(),
+                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             // Redundant route.
             HttpRoute {
                 rules: vec![HttpRule::default()],
-                ..HttpRoute::default()
+                hosts: vec![],
+                labels: Arc::new(Labels {
+                    name: "nop-unexpected".into(),
+                    kind: "httproute.gateway.networking.k8s.io".into(),
+                }),
             },
         ];
 

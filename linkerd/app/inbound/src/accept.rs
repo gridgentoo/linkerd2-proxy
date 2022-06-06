@@ -130,12 +130,16 @@ mod tests {
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![Default::default()],
-                    kind: "serverauthorization".into(),
-                    name: "testsaz".into(),
+                    labels: Arc::new(Labels {
+                        kind: "serverauthorization".into(),
+                        name: "testsaz".into(),
+                    }),
                 }]
                 .into(),
-                kind: "server".into(),
-                name: "testsrv".into(),
+                labels: Arc::new(Labels {
+                    kind: "server".into(),
+                    name: "testsrv".into(),
+                }),
             },
             None,
         );

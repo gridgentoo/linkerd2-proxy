@@ -1,6 +1,8 @@
 use super::*;
 use linkerd_app_core::{proxy::http, Error};
-use linkerd_server_policy::{Authentication, Authorization, Protocol, ServerPolicy, Suffix};
+use linkerd_server_policy::{
+    Authentication, Authorization, Labels, Protocol, ServerPolicy, Suffix,
+};
 
 #[derive(Clone)]
 pub(crate) struct MockSvc;
@@ -12,12 +14,16 @@ async fn unauthenticated_allowed() {
         authorizations: vec![Authorization {
             authentication: Authentication::Unauthenticated,
             networks: vec!["192.0.2.0/24".parse().unwrap()],
-            kind: "serverauthorization".into(),
-            name: "unauth".into(),
+            labels: Arc::new(Labels {
+                kind: "serverauthorization".into(),
+                name: "unauth".into(),
+            }),
         }]
         .into(),
-        kind: "server".into(),
-        name: "test".into(),
+        labels: Arc::new(Labels {
+            kind: "server".into(),
+            name: "test".into(),
+        }),
     };
 
     let policies = Store::for_test(policy.clone(), None);
@@ -33,14 +39,14 @@ async fn unauthenticated_allowed() {
         Permit {
             dst: orig_dst_addr(),
             protocol: policy.protocol,
-            labels: AuthzLabels {
+            authz_labels: Arc::new(Labels {
                 kind: "serverauthorization".into(),
                 name: "unauth".into(),
-                server: ServerLabel {
-                    kind: "server".into(),
-                    name: "test".into(),
-                }
-            }
+            }),
+            server_labels: Arc::new(Labels {
+                kind: "server".into(),
+                name: "test".into(),
+            })
         }
     );
 }
@@ -55,12 +61,16 @@ async fn authenticated_identity() {
                 identities: vec![client_id().to_string()].into_iter().collect(),
             },
             networks: vec!["192.0.2.0/24".parse().unwrap()],
-            kind: "serverauthorization".into(),
-            name: "tls-auth".into(),
+            labels: Arc::new(Labels {
+                kind: "serverauthorization".into(),
+                name: "tls-auth".into(),
+            }),
         }]
         .into(),
-        kind: "server".into(),
-        name: "test".into(),
+        labels: Arc::new(Labels {
+            kind: "server".into(),
+            name: "test".into(),
+        }),
     };
 
     let policies = Store::for_test(policy.clone(), None);
@@ -79,14 +89,14 @@ async fn authenticated_identity() {
         Permit {
             dst: orig_dst_addr(),
             protocol: policy.protocol,
-            labels: AuthzLabels {
+            authz_labels: Arc::new(Labels {
                 kind: "serverauthorization".into(),
                 name: "tls-auth".into(),
-                server: ServerLabel {
-                    kind: "server".into(),
-                    name: "test".into()
-                },
-            }
+            }),
+            server_labels: Arc::new(Labels {
+                kind: "server".into(),
+                name: "test".into()
+            })
         }
     );
 
@@ -113,12 +123,16 @@ async fn authenticated_suffix() {
                 identities: Default::default(),
             },
             networks: vec!["192.0.2.0/24".parse().unwrap()],
-            kind: "serverauthorization".into(),
-            name: "tls-auth".into(),
+            labels: Arc::new(Labels {
+                kind: "serverauthorization".into(),
+                name: "tls-auth".into(),
+            }),
         }]
         .into(),
-        kind: "server".into(),
-        name: "test".into(),
+        labels: Arc::new(Labels {
+            kind: "server".into(),
+            name: "test".into(),
+        }),
     };
 
     let policies = Store::for_test(policy.clone(), None);
@@ -136,14 +150,14 @@ async fn authenticated_suffix() {
         Permit {
             dst: orig_dst_addr(),
             protocol: policy.protocol,
-            labels: AuthzLabels {
+            authz_labels: Arc::new(Labels {
                 kind: "serverauthorization".into(),
-                name: "tls-auth".into(),
-                server: ServerLabel {
-                    kind: "server".into(),
-                    name: "test".into()
-                }
-            }
+                name: "tls-auth".into()
+            }),
+            server_labels: Arc::new(Labels {
+                kind: "server".into(),
+                name: "test".into()
+            }),
         }
     );
 
@@ -167,12 +181,16 @@ async fn tls_unauthenticated() {
         authorizations: vec![Authorization {
             authentication: Authentication::TlsUnauthenticated,
             networks: vec!["192.0.2.0/24".parse().unwrap()],
-            kind: "serverauthorization".into(),
-            name: "tls-unauth".into(),
+            labels: Arc::new(Labels {
+                kind: "serverauthorization".into(),
+                name: "tls-unauth".into(),
+            }),
         }]
         .into(),
-        kind: "server".into(),
-        name: "test".into(),
+        labels: Arc::new(Labels {
+            kind: "server".into(),
+            name: "test".into(),
+        }),
     };
 
     let policies = Store::for_test(policy.clone(), None);
@@ -190,14 +208,14 @@ async fn tls_unauthenticated() {
         Permit {
             dst: orig_dst_addr(),
             protocol: policy.protocol,
-            labels: AuthzLabels {
+            authz_labels: Arc::new(Labels {
                 kind: "serverauthorization".into(),
                 name: "tls-unauth".into(),
-                server: ServerLabel {
-                    kind: "server".into(),
-                    name: "test".into(),
-                },
-            }
+            }),
+            server_labels: Arc::new(Labels {
+                kind: "server".into(),
+                name: "test".into(),
+            }),
         }
     );
 

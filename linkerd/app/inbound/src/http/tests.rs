@@ -610,12 +610,16 @@ impl svc::Param<policy::AllowPolicy> for Target {
                 authorizations: vec![policy::Authorization {
                     authentication: policy::Authentication::Unauthenticated,
                     networks: vec![std::net::IpAddr::from([192, 0, 2, 3]).into()],
-                    kind: "serverauthorization".into(),
-                    name: "testsaz".into(),
+                    labels: Arc::new(Labels {
+                        kind: "serverauthorization".into(),
+                        name: "testsaz".into(),
+                    }),
                 }]
                 .into(),
-                kind: "server".into(),
-                name: "testsrv".into(),
+                labels: Arc::new(Labels {
+                    kind: "server".into(),
+                    name: "testsrv".into(),
+                }),
             },
         );
         policy

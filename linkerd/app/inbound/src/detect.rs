@@ -303,7 +303,7 @@ impl svc::Param<transport::labels::Key> for Forward {
         transport::labels::Key::inbound_server(
             self.tls.clone(),
             self.orig_dst_addr.into(),
-            self.permit.labels.server.clone(),
+            self.permit.server_labels.clone(),
         )
     }
 }
@@ -469,12 +469,16 @@ mod tests {
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![client_addr().ip().into()],
-                    kind: "serverathorizationu".into(),
-                    name: "testsaz".into(),
+                    labels: Arc::new(Labels {
+                        kind: "serverathorizationu".into(),
+                        name: "testsaz".into(),
+                    }),
                 }]
                 .into(),
-                kind: "server".into(),
-                name: "testsrv".into(),
+                labels: Arc::new(Labels {
+                    kind: "server".into(),
+                    name: "testsrv".into(),
+                }),
             },
         );
         allow

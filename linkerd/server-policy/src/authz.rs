@@ -1,15 +1,14 @@
 mod network;
 
 pub use self::network::Network;
+use crate::Labels;
 use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Authorization {
     pub networks: Vec<Network>,
     pub authentication: Authentication,
-
-    pub kind: Arc<str>,
-    pub name: Arc<str>,
+    pub labels: Arc<Labels>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

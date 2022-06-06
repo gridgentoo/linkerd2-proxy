@@ -19,8 +19,7 @@ pub type HttpRule = linkerd_http_route::HttpRule<RoutePolicy>;
 pub struct ServerPolicy {
     pub protocol: Protocol,
     pub authorizations: Arc<[Authorization]>,
-    pub kind: Arc<str>,
-    pub name: Arc<str>,
+    pub labels: Arc<Labels>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -49,11 +48,14 @@ pub struct HttpConfig {
 pub struct RoutePolicy {
     pub authorizations: Arc<[Authorization]>,
     pub filters: Vec<RouteFilter>,
-    pub labels: RouteLabels,
+    pub labels: Arc<Labels>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RouteLabels(Arc<[(String, String)]>);
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct Labels {
+    pub kind: String,
+    pub name: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RouteFilter {
@@ -69,21 +71,30 @@ pub enum RouteFilter {
     Unknown,
 }
 
-// === impl RouteLabels ===
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidLabels {
+    #[error("missing label 'kind'")]
+    MissingKind,
 
-impl From<std::collections::HashMap<String, String>> for RouteLabels {
-    fn from(labels: std::collections::HashMap<String, String>) -> Self {
-        let mut kvs = labels.into_iter().collect::<Vec<_>>();
-        kvs.sort_by(|(k0, _), (k1, _)| k0.cmp(k1));
-        Self(kvs.into())
-    }
+    #[error("missing label 'name'")]
+    MissingName,
 }
 
-impl std::ops::Deref for RouteLabels {
-    type Target = [(String, String)];
+// === impl Labels ===
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl TryFrom<std::collections::HashMap<String, String>> for Labels {
+    type Error = InvalidLabels;
+
+    fn try_from(labels: std::collections::HashMap<String, String>) -> Result<Self, InvalidLabels> {
+        let kind = labels
+            .get("kind")
+            .ok_or(InvalidLabels::MissingKind)?
+            .clone();
+        let name = labels
+            .get("name")
+            .ok_or(InvalidLabels::MissingName)?
+            .clone();
+        Ok(Self { kind, name })
     }
 }
 

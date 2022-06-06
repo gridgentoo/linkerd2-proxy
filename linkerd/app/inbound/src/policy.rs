@@ -10,7 +10,6 @@ pub use self::authorize::{NewAuthorizeHttp, NewAuthorizeTcp};
 pub use self::config::Config;
 pub(crate) use self::store::Store;
 
-pub use linkerd_app_core::metrics::{AuthzLabels, ServerLabel};
 use linkerd_app_core::{
     tls,
     transport::{ClientAddr, OrigDstAddr, Remote},
@@ -18,17 +17,16 @@ use linkerd_app_core::{
 };
 use linkerd_cache::Cached;
 pub use linkerd_server_policy::{
-    self as policy, Authentication, Authorization, Protocol, ServerPolicy, Suffix,
+    self as policy, Authentication, Authorization, Labels, Protocol, ServerPolicy, Suffix,
 };
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Error)]
-#[error("unauthorized connection on {kind}/{name}")]
+#[error("unauthorized connection on {}/{}", server.kind, server.name)]
 pub struct DeniedUnauthorized {
-    kind: std::sync::Arc<str>,
-    name: std::sync::Arc<str>,
+    server: std::sync::Arc<Labels>,
 }
 
 pub trait GetPolicy {
@@ -53,7 +51,8 @@ pub struct Permit {
     pub dst: OrigDstAddr,
     pub protocol: Protocol,
 
-    pub labels: AuthzLabels,
+    pub authz_labels: Arc<policy::Labels>,
+    pub server_labels: Arc<policy::Labels>,
 }
 
 // === impl DefaultPolicy ===
@@ -71,8 +70,10 @@ impl From<DefaultPolicy> for ServerPolicy {
             DefaultPolicy::Deny => ServerPolicy {
                 protocol: Protocol::Opaque,
                 authorizations: vec![].into(),
-                kind: "default".into(),
-                name: "deny".into(),
+                labels: Arc::new(policy::Labels {
+                    kind: "default".into(),
+                    name: "deny".into(),
+                }),
             },
         }
     }
@@ -103,12 +104,8 @@ impl AllowPolicy {
     }
 
     #[inline]
-    pub fn server_label(&self) -> ServerLabel {
-        let s = self.server.borrow();
-        ServerLabel {
-            kind: s.kind.clone(),
-            name: s.name.clone(),
-        }
+    pub fn server_label(&self) -> Arc<policy::Labels> {
+        self.server.borrow().labels.clone()
     }
 
     async fn changed(&mut self) {
@@ -135,8 +132,7 @@ impl AllowPolicy {
 
         if server.authorizations.is_empty() {
             return Err(DeniedUnauthorized {
-                kind: server.kind.clone(),
-                name: server.name.clone(),
+                server: server.labels.clone(),
             });
         }
         drop(server);
@@ -159,8 +155,7 @@ impl AllowPolicy {
         }
 
         Err(DeniedUnauthorized {
-            kind: server.kind.clone(),
-            name: server.name.clone(),
+            server: server.labels.clone(),
         })
     }
 }
@@ -206,14 +201,8 @@ impl Permit {
         Self {
             dst,
             protocol: server.protocol.clone(),
-            labels: AuthzLabels {
-                kind: authz.kind.clone(),
-                name: authz.name.clone(),
-                server: ServerLabel {
-                    kind: server.kind.clone(),
-                    name: server.name.clone(),
-                },
-            },
+            authz_labels: authz.labels.clone(),
+            server_labels: server.labels.clone(),
         }
     }
 }

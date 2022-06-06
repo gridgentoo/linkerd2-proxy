@@ -255,14 +255,20 @@ where
         let labels = vec![
             (
                 "srv_kind".to_string(),
-                permit.labels.server.kind.to_string(),
+                permit.server_labels.kind.to_string(),
             ),
             (
                 "srv_name".to_string(),
-                permit.labels.server.name.to_string(),
+                permit.server_labels.name.to_string(),
             ),
-            ("authz_kind".to_string(), permit.labels.kind.to_string()),
-            ("authz_name".to_string(), permit.labels.name.to_string()),
+            (
+                "authz_kind".to_string(),
+                permit.authz_labels.kind.to_string(),
+            ),
+            (
+                "authz_name".to_string(),
+                permit.authz_labels.name.to_string(),
+            ),
         ];
 
         Self {

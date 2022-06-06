@@ -23,6 +23,9 @@ pub enum Error {
 
     #[error("invalid HTTP route: {0}")]
     HttpRoute(#[from] HttpRouteError),
+
+    #[error("invalid labels: {0}")]
+    InvalidLabels(#[from] InvalidLabels),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -39,8 +42,8 @@ pub enum AuthzError {
     #[error("authentication is not valid")]
     InvalidAuthentication,
 
-    #[error("missing 'name' label")]
-    MissingNameLabel,
+    #[error("invalid labels: {0}")]
+    InvalidLabels(#[from] InvalidLabels),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -62,6 +65,9 @@ pub enum HttpRouteError {
 
     #[error("invalid filter with an unkown kind")]
     MissingFilter,
+
+    #[error("invalid labels: {0}")]
+    InvalidLabels(#[from] InvalidLabels),
 }
 
 impl TryFrom<api::Server> for ServerPolicy {
@@ -114,20 +120,21 @@ impl TryFrom<api::Server> for ServerPolicy {
 
         let authorizations = to_authorizations(proto.authorizations)?;
 
-        let (kind, name) = kind_name(&proto.labels, "server")?;
+        let labels = Labels::try_from(proto.labels)?.into();
         Ok(ServerPolicy {
             protocol,
             authorizations,
-            kind,
-            name,
+            labels,
         })
     }
 }
 
 fn to_authorizations(authzs: Vec<api::Authz>) -> Result<Arc<[Authorization]>, AuthzError> {
     let loopback = Authorization {
-        kind: "default".into(),
-        name: "localhost".into(),
+        labels: Arc::new(Labels {
+            kind: "default".to_string(),
+            name: "localhost".to_string(),
+        }),
         authentication: Authentication::Unauthenticated,
         networks: vec![
             Network {
@@ -198,34 +205,12 @@ fn to_authorization(az: api::Authz) -> Result<Authorization, AuthzError> {
         }
     };
 
-    let (kind, name) = kind_name(&labels, "serverauthorization")?;
+    let labels = Labels::try_from(labels)?.into();
     Ok(Authorization {
         networks,
         authentication: authn,
-        kind,
-        name,
+        labels,
     })
-}
-
-fn kind_name(
-    labels: &std::collections::HashMap<String, String>,
-    default_kind: &str,
-) -> Result<(Arc<str>, Arc<str>), AuthzError> {
-    let name = labels
-        .get("name")
-        .ok_or(AuthzError::MissingNameLabel)?
-        .clone();
-    let mut parts = name.splitn(2, ':');
-    match (parts.next().unwrap(), parts.next()) {
-        (kind, Some(name)) => Ok((kind.into(), name.into())),
-        (name, None) => {
-            let kind = labels
-                .get("kind")
-                .cloned()
-                .unwrap_or_else(|| default_kind.to_string());
-            Ok((kind.into(), name.into()))
-        }
-    }
 }
 
 impl HttpConfig {
@@ -257,7 +242,7 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, HostMatchError>>()?;
 
         let authzs = to_authorizations(authorizations)?;
-        let labels = RouteLabels::from(labels);
+        let labels = Arc::new(Labels::try_from(labels)?);
         let rules = rules
             .into_iter()
             .map(|r| Self::try_rule(authzs.clone(), labels.clone(), r))
@@ -268,7 +253,7 @@ impl HttpConfig {
 
     fn try_rule(
         authorizations: Arc<[Authorization]>,
-        labels: RouteLabels,
+        labels: Arc<Labels>,
         proto: api::http_route::Rule,
     ) -> Result<HttpRule, HttpRouteError> {
         let matches = proto
