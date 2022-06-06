@@ -236,7 +236,7 @@ impl HttpConfig {
         let routes = routes
             .into_iter()
             .map(Self::try_route)
-            .collect::<Result<HttpRoutes<RoutePolicy>, HttpRouteError>>()?;
+            .collect::<Result<Vec<HttpRoute>, HttpRouteError>>()?;
         Ok(HttpConfig {
             disable_info_headers,
             routes,
@@ -257,11 +257,7 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, HostMatchError>>()?;
 
         let authzs = to_authorizations(authorizations)?;
-        let labels: Arc<[_]> = {
-            let mut ls = labels.into_iter().collect::<Vec<_>>();
-            ls.sort_by(|(k0, _), (k1, _)| k0.cmp(k1));
-            ls.into()
-        };
+        let labels = RouteLabels::from(labels);
         let rules = rules
             .into_iter()
             .map(|r| Self::try_rule(authzs.clone(), labels.clone(), r))
@@ -272,11 +268,9 @@ impl HttpConfig {
 
     fn try_rule(
         authorizations: Arc<[Authorization]>,
-        labels: Labels,
+        labels: RouteLabels,
         proto: api::http_route::Rule,
     ) -> Result<HttpRule, HttpRouteError> {
-        use api::http_route::rule::filter;
-
         let matches = proto
             .matches
             .into_iter()
@@ -284,16 +278,22 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, RouteMatchError>>()?;
 
         let policy = {
+            use api::http_route::rule::filter;
+
             let filters = proto
                 .filters
                 .into_iter()
-                .map(|f| match f.kind.ok_or(HttpRouteError::MissingFilter)? {
-                    filter::Kind::RequestHeaderModifier(rhm) => {
+                .map(|f| match f.kind {
+                    Some(filter::Kind::RequestHeaderModifier(rhm)) => {
                         Ok(RouteFilter::RequestHeaders(rhm.try_into()?))
                     }
-                    filter::Kind::RequestRedirect(rr) => Ok(RouteFilter::Redirect(rr.try_into()?)),
+                    Some(filter::Kind::RequestRedirect(rr)) => {
+                        Ok(RouteFilter::Redirect(rr.try_into()?))
+                    }
+                    None => Ok(RouteFilter::Unknown),
                 })
                 .collect::<Result<Vec<_>, HttpRouteError>>()?;
+
             RoutePolicy {
                 authorizations,
                 filters,

@@ -6,11 +6,9 @@ mod authz;
 mod proto;
 
 pub use self::authz::{Authentication, Authorization, Network, Suffix};
-pub use linkerd_http_route::filter;
-use linkerd_http_route::{
-    filter::{InvalidRedirect, Redirection},
-    service::Routes,
-    ApplyRoute, HttpRouteMatch,
+pub use linkerd_http_route::{
+    self as http_route,
+    filter::{ModifyRequestHeader, RedirectRequest},
 };
 use std::{sync::Arc, time};
 
@@ -51,74 +49,40 @@ pub struct HttpConfig {
 pub struct RoutePolicy {
     pub authorizations: Arc<[Authorization]>,
     pub filters: Vec<RouteFilter>,
-    pub labels: Labels,
+    pub labels: RouteLabels,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Labels(Arc<[(String, String)]>);
+pub struct RouteLabels(Arc<[(String, String)]>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RouteFilter {
-    RequestHeaders(filter::ModifyRequestHeader),
-    Redirect(filter::RedirectRequest),
+    RequestHeaders(ModifyRequestHeader),
+
+    Redirect(RedirectRequest),
+
+    /// Indicates that the filter kind is unknown to the proxy (e.g., because
+    /// the controller is on a new version of the protobuf).
+    ///
+    /// Route handlers must be careful about this situation, as it may not be
+    /// appropriate for a proxy to skip filtering logic.
+    Unknown,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum RouteError {
-    #[error("invalid redirect: {0}")]
-    InvalidRedirect(#[from] InvalidRedirect),
+// === impl RouteLabels ===
 
-    #[error("request redirected")]
-    Redirect(Redirection),
+impl From<std::collections::HashMap<String, String>> for RouteLabels {
+    fn from(labels: std::collections::HashMap<String, String>) -> Self {
+        let mut kvs = labels.into_iter().collect::<Vec<_>>();
+        kvs.sort_by(|(k0, _), (k1, _)| k0.cmp(k1));
+        Self(kvs.into())
+    }
 }
 
-// === impl Labels ===
-
-impl std::ops::Deref for Labels {
+impl std::ops::Deref for RouteLabels {
     type Target = [(String, String)];
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-// === impl HttpConfig ===
-
-impl Routes<RoutePolicy> for HttpConfig {
-    fn routes(&self) -> &[linkerd_http_route::HttpRoute<R>] {
-        &*self.routes
-    }
-}
-
-// === impl RoutePolicy ===
-
-impl ApplyRoute for RoutePolicy {
-    type Error = RouteError;
-
-    fn apply_route<B>(
-        &self,
-        rm: HttpRouteMatch,
-        req: &mut http::Request<B>,
-    ) -> Result<(), RouteError> {
-        // TODO use request extensions to find client information.
-        for authz in &*self.authorizations {
-            let _ = authz;
-        }
-
-        for filter in &self.filters {
-            match filter {
-                RouteFilter::RequestHeaders(rh) => {
-                    rh.apply(req.headers_mut());
-                }
-                RouteFilter::Redirect(redir) => {
-                    let redirection = redir.apply(req.uri(), &rm)?;
-                    return Err(RouteError::Redirect(redirection));
-                }
-            }
-        }
-
-        req.extensions_mut().insert(self.labels.clone());
-
-        Ok(())
     }
 }

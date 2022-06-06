@@ -116,3 +116,72 @@ where
         }
     }
 }
+
+/*
+use linkerd_http_route::{
+    filter::{InvalidRedirect, ModifyRequestHeader, Redirection},
+    service::Routes,
+    ApplyRoute, HttpRouteMatch,
+};
+
+#[derive(Debug, thiserror::Error)]
+pub enum RouteError {
+    #[error("invalid redirect: {0}")]
+    InvalidRedirect(#[from] InvalidRedirect),
+
+    #[error("request redirected")]
+    Redirect(Redirection),
+}
+
+
+// === impl HttpConfig ===
+
+impl Routes for HttpConfig {
+    type Route = RoutePolicy;
+    type Error = RouteError;
+
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &RoutePolicy)> {
+        linkerd_http_route::find(&*self.routes, req)
+    }
+
+    fn apply<B>(&self, route: &Self::Route, req: &mut http::Request<B>) -> Result<(), Self::Error> {
+        todo!()
+    }
+}
+
+// === impl RoutePolicy ===
+
+impl ApplyRoute for RoutePolicy {
+    type Error = RouteError;
+
+    fn apply_route<B>(
+        &self,
+        rm: HttpRouteMatch,
+        req: &mut http::Request<B>,
+    ) -> Result<(), RouteError> {
+        // TODO use request extensions to find client information.
+        for authz in &*self.authorizations {
+            let _ = authz;
+        }
+
+        for filter in &self.filters {
+            match filter {
+                RouteFilter::RequestHeaders(rh) => {
+                    rh.apply(req.headers_mut());
+                }
+                RouteFilter::Redirect(redir) => {
+                    let redirection = redir.apply(req.uri(), &rm)?;
+                    return Err(RouteError::Redirect(redirection));
+                }
+                RouteFilter::Unknown => {
+                    // XXX should we throw an error? log a warning?
+                }
+            }
+        }
+
+        req.extensions_mut().insert(self.labels.clone());
+
+        Ok(())
+    }
+}
+*/

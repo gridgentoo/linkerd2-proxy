@@ -1,29 +1,40 @@
-use super::{ApplyRoute, HttpRoute};
-use crate::RouteError;
 use futures::TryFutureExt;
 use linkerd_stack::Service;
 use std::{
     future::Future,
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
 
-pub trait Routes<R> {
-    fn routes(&self) -> &[HttpRoute<R>];
+use crate::HttpRouteMatch;
+
+pub trait Routes {
+    type Route;
+    type Error;
+
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &Self::Route)>;
+
+    fn apply<B>(
+        &self,
+        rt_match: HttpRouteMatch,
+        route: &Self::Route,
+        req: &mut http::Request<B>,
+    ) -> Result<(), Self::Error>;
 }
 
 #[derive(Clone, Debug)]
-pub struct RouteService<T: Routes<R>, R, S> {
-    routes: T,
+pub struct RouteService<R, S> {
+    routes: R,
     inner: S,
-    _marker: PhantomData<R>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error<R, S> {
+    #[error("no route found")]
+    RouteNotFound,
+
     #[error("failed to route request: {0}")]
-    Route(#[source] RouteError<R>),
+    Route(#[source] R),
 
     #[error("service failed: {0}")]
     Service(#[source] S),
@@ -31,20 +42,15 @@ pub enum Error<R, S> {
 
 // === impl RouteService ===
 
-impl<T: Routes<R>, R, S> RouteService<T, R, S> {
-    pub fn new(routes: T, inner: S) -> Self {
-        Self {
-            routes,
-            inner,
-            _marker: PhantomData,
-        }
+impl<R: Routes, S> RouteService<R, S> {
+    pub fn new(routes: R, inner: S) -> Self {
+        Self { routes, inner }
     }
 }
 
-impl<B, T, R, S> Service<http::Request<B>> for RouteService<T, R, S>
+impl<B, R, S> Service<http::Request<B>> for RouteService<R, S>
 where
-    T: Routes<R>,
-    R: ApplyRoute + Send + 'static,
+    R: Routes,
     R::Error: Send + 'static,
     S: Service<http::Request<B>>,
     S::Response: Send + 'static,
@@ -63,10 +69,37 @@ where
 
     #[inline]
     fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
-        if let Err(e) = crate::find_and_apply(self.routes.routes(), &mut req) {
+        let (rt_match, route) = match self.routes.find(&req) {
+            Some(rt) => rt,
+            None => return Box::pin(futures::future::err(Error::RouteNotFound)),
+        };
+
+        if let Err(e) = self.routes.apply(rt_match, route, &mut req) {
             return Box::pin(futures::future::err(Error::Route(e)));
         }
 
         Box::pin(self.inner.call(req).map_err(Error::Service))
+    }
+}
+
+// === impl Routes ===
+
+impl<T: Routes> Routes for std::sync::Arc<T> {
+    type Route = T::Route;
+    type Error = T::Error;
+
+    #[inline]
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &Self::Route)> {
+        T::find(self, req)
+    }
+
+    #[inline]
+    fn apply<B>(
+        &self,
+        rt_match: HttpRouteMatch,
+        route: &Self::Route,
+        req: &mut http::Request<B>,
+    ) -> Result<(), Self::Error> {
+        T::apply(self, rt_match, route, req)
     }
 }

@@ -38,18 +38,6 @@ pub struct HttpRouteMatch {
     request: RequestMatch,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum RouteError<E> {
-    /// Indicates that a route failed to process the request.
-    #[error("{0}")]
-    Failed(#[source] E),
-
-    /// Indicates that no route could be found (so no request modifications were
-    /// performed).
-    #[error("no route found")]
-    NotFound,
-}
-
 pub fn find<'t, T, B>(
     routes: impl IntoIterator<Item = &'t HttpRoute<T>>,
     req: &http::Request<B>,
@@ -60,17 +48,6 @@ pub fn find<'t, T, B>(
         // This is roughly equivalent to `max_by(...)` but we want to ensure
         // that the first match wins.
         .reduce(|(m0, t0), (m, t)| if m0 < m { (m, t) } else { (m0, t0) })
-}
-
-pub fn find_and_apply<'t, T: 't, B>(
-    routes: impl IntoIterator<Item = &'t HttpRoute<T>>,
-    req: &mut http::Request<B>,
-) -> Result<(), RouteError<T::Error>>
-where
-    T: ApplyRoute,
-{
-    let (m, rt) = find(routes, req).ok_or(RouteError::NotFound)?;
-    rt.apply_route(m, req).map_err(RouteError::Failed)
 }
 
 // === impl HttpRoute ===
