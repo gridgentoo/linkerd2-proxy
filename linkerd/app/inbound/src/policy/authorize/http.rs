@@ -160,14 +160,21 @@ where
                 RouteFilter::RequestHeaders(rh) => {
                     rh.apply(req.headers_mut());
                 }
-                RouteFilter::Redirect(redir) => {
-                    return future::Either::Right(future::err(
-                        match redir.apply(req.uri(), &rt_match) {
-                            Ok(redirection) => HttpRouteRedirect(redirection).into(),
-                            Err(invalid) => HttpRouteInvalidRedirect(invalid).into(),
-                        },
-                    ));
-                }
+                RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
+                    Ok(Some(redirection)) => {
+                        return future::Either::Right(future::err(
+                            HttpRouteRedirect(redirection).into(),
+                        ))
+                    }
+                    Ok(None) => {
+                        tracing::debug!("Ignoring irrelvant redirect");
+                    }
+                    Err(invalid) => {
+                        return future::Either::Right(future::err(
+                            HttpRouteInvalidRedirect(invalid).into(),
+                        ))
+                    }
+                },
                 RouteFilter::Unknown => {
                     let meta = route.meta.clone();
                     return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));

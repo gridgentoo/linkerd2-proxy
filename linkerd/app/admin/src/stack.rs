@@ -299,14 +299,10 @@ impl errors::HttpRescue<Error> for Rescue {
             return Ok(errors::SyntheticHttpResponse::permission_denied(cause));
         }
 
-        if let Some(inbound::policy::HttpRouteInvalidRedirect(cause)) =
-            errors::cause_ref::<inbound::policy::HttpRouteInvalidRedirect>(&*error)
+        if let Some(error) = errors::cause_ref::<inbound::policy::HttpRouteInvalidRedirect>(&*error)
         {
-            if matches!(cause, inbound::policy::InvalidRedirect::Loop) {
-                return Ok(errors::SyntheticHttpResponse::loop_detected(cause));
-            }
-            tracing::warn!(error, "Unexpected error");
-            return Ok(errors::SyntheticHttpResponse::unexpected_error());
+            tracing::warn!(%error);
+            return Ok(errors::SyntheticHttpResponse::not_found(error));
         }
 
         if let Some(inbound::policy::HttpRouteRedirect(redir)) =

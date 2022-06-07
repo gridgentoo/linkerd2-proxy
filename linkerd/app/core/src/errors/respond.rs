@@ -1,5 +1,5 @@
 use crate::svc;
-use http::header::{HeaderName, HeaderValue};
+use http::header::{HeaderValue, LOCATION};
 use linkerd_error::{Error, Result};
 use linkerd_error_respond as respond;
 pub use linkerd_proxy_http::{ClientHandle, HasH2Reason};
@@ -246,7 +246,7 @@ impl SyntheticHttpResponse {
         }
 
         if let Some(loc) = &self.location {
-            rsp = rsp.header(http::header::LOCATION, loc);
+            rsp = rsp.header(LOCATION, loc);
         }
 
         rsp.body(B::default())

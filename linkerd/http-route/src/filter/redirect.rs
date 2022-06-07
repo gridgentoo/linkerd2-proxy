@@ -13,9 +13,6 @@ pub struct RedirectRequest {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidRedirect {
-    #[error("redirect would loop")]
-    Loop,
-
     #[error("redirects may only replace the path prefix when a path prefix match applied")]
     InvalidReplacePrefix,
 
@@ -42,7 +39,7 @@ impl RedirectRequest {
         &self,
         orig_uri: &http::Uri,
         rm: &HttpRouteMatch,
-    ) -> Result<Redirection, InvalidRedirect> {
+    ) -> Result<Option<Redirection>, InvalidRedirect> {
         let location = {
             let scheme = self
                 .scheme
@@ -89,11 +86,11 @@ impl RedirectRequest {
                 .map_err(InvalidRedirect::InvalidLocation)?
         };
         if &location == orig_uri {
-            return Err(InvalidRedirect::Loop);
+            return Ok(None);
         }
 
         let status = self.status.unwrap_or(http::StatusCode::MOVED_PERMANENTLY);
 
-        Ok(Redirection { status, location })
+        Ok(Some(Redirection { status, location }))
     }
 }

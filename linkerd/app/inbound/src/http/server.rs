@@ -1,5 +1,5 @@
 use super::set_identity_header::NewSetIdentityHeader;
-use crate::Inbound;
+use crate::{policy, Inbound};
 pub use linkerd_app_core::proxy::http::{
     normalize_uri, strip_header, uri, BoxBody, BoxResponse, DetectHttp, Request, Response, Retain,
     Version,
@@ -15,7 +15,6 @@ use linkerd_app_core::{
     Error, Result,
 };
 use linkerd_http_access_log::NewAccessLog;
-use linkerd_server_policy::http_route::filter::{InvalidRedirect, Redirection};
 use tracing::debug_span;
 
 #[derive(Copy, Clone, Debug)]
@@ -128,26 +127,21 @@ impl<T: Param<tls::ConditionalServerTls>> ExtractParam<errors::respond::EmitHead
 
 impl errors::HttpRescue<Error> for ServerRescue {
     fn rescue(&self, error: Error) -> Result<errors::SyntheticHttpResponse> {
-        if let Some(cause) = errors::cause_ref::<crate::policy::HttpRouteNotFound>(&*error) {
+        if let Some(cause) = errors::cause_ref::<policy::HttpRouteNotFound>(&*error) {
             return Ok(errors::SyntheticHttpResponse::not_found(cause));
         }
 
-        if let Some(cause) = errors::cause_ref::<crate::policy::HttpRouteUnauthorized>(&*error) {
+        if let Some(cause) = errors::cause_ref::<policy::HttpRouteUnauthorized>(&*error) {
             return Ok(errors::SyntheticHttpResponse::permission_denied(cause));
         }
 
-        if let Some(crate::policy::HttpRouteInvalidRedirect(cause)) =
-            errors::cause_ref::<crate::policy::HttpRouteInvalidRedirect>(&*error)
-        {
-            if matches!(cause, InvalidRedirect::Loop) {
-                return Ok(errors::SyntheticHttpResponse::loop_detected(cause));
-            }
-            tracing::warn!(error, "Unexpected error");
+        if let Some(error) = errors::cause_ref::<policy::HttpRouteInvalidRedirect>(&*error) {
+            tracing::warn!(%error);
             return Ok(errors::SyntheticHttpResponse::unexpected_error());
         }
 
-        if let Some(crate::policy::HttpRouteRedirect(Redirection { status, location })) =
-            errors::cause_ref::<crate::policy::HttpRouteRedirect>(&*error)
+        if let Some(policy::HttpRouteRedirect(policy::Redirection { status, location })) =
+            errors::cause_ref::<policy::HttpRouteRedirect>(&*error)
         {
             return Ok(errors::SyntheticHttpResponse::redirect(*status, location));
         }

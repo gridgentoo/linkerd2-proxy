@@ -128,7 +128,7 @@ impl TryFrom<api::Server> for ServerPolicy {
 
         let authorizations = mk_authorizations(proto.authorizations)?;
 
-        let meta = Meta::try_new(&proto.labels, "server")?;
+        let meta = Meta::try_new(proto.labels, "server")?;
         Ok(ServerPolicy {
             protocol,
             authorizations,
@@ -219,7 +219,7 @@ impl TryFrom<api::Authz> for Authorization {
             }
         };
 
-        let meta = Meta::try_new(&labels, "serverauthorization")?;
+        let meta = Meta::try_new(labels, "serverauthorization")?;
         Ok(Authorization {
             networks,
             authentication: authn,
@@ -230,19 +230,19 @@ impl TryFrom<api::Authz> for Authorization {
 
 impl Meta {
     fn try_new(
-        labels: &std::collections::HashMap<String, String>,
+        mut labels: std::collections::HashMap<String, String>,
         default_kind: &'static str,
     ) -> Result<Arc<Meta>, InvalidLabel> {
+        let name = labels.remove("name").ok_or(InvalidLabel::MissingName)?;
+
         let group = labels
-            .get("group")
-            .cloned()
+            .remove("group")
             .map(Cow::Owned)
             // If no group is specified, we leave it blank. This is to avoid setting
             // a group when using synthetic kinds like "default".
             .unwrap_or(Cow::Borrowed(""));
 
-        let name = labels.get("name").ok_or(InvalidLabel::MissingName)?.clone();
-        if let Some(kind) = labels.get("kind").cloned() {
+        if let Some(kind) = labels.remove("kind") {
             return Ok(Arc::new(Meta {
                 group,
                 kind: kind.into(),
@@ -299,7 +299,7 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, HostMatchError>>()?;
 
         let authzs = mk_authorizations(authorizations)?;
-        let meta = Meta::try_new(&labels, "HTTPRoute")?;
+        let meta = Meta::try_new(labels, "httproute")?;
         let rules = rules
             .into_iter()
             .map(|r| Self::try_rule(authzs.clone(), meta.clone(), r))
