@@ -17,7 +17,7 @@ use linkerd_server_policy::{
         /* HttpRouteMatch, */
     },
 };
-use std::task;
+use std::{sync::Arc, task};
 
 /// A middleware that enforces policy on each HTTP request.
 ///
@@ -52,6 +52,9 @@ pub enum RouteError {
 
     #[error("request redirected")]
     Redirect(Redirection),
+
+    #[error("unknown filter type in route: {} {} {}", meta.group, meta.kind, meta.name)]
+    UnknownFilter { meta: Arc<policy::Meta> },
 }
 
 // === impl NewAuthorizeHttp ===
@@ -156,7 +159,12 @@ where
                     }
                 },
                 policy::RouteFilter::Unknown => {
-                    // XXX should we throw an error? log a warning?
+                    return future::Either::Right(future::err(
+                        RouteError::UnknownFilter {
+                            meta: route.meta.clone(),
+                        }
+                        .into(),
+                    ));
                 }
             }
         }
