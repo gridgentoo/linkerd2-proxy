@@ -389,7 +389,7 @@ impl From<Profile> for Logical {
 
 impl Param<u16> for Logical {
     fn param(&self) -> u16 {
-        self.addr.as_ref().port()
+        self.addr.port()
     }
 }
 
@@ -421,9 +421,7 @@ impl classify::CanClassify for Logical {
 
 impl tap::Inspect for Logical {
     fn src_addr<B>(&self, req: &http::Request<B>) -> Option<SocketAddr> {
-        req.extensions()
-            .get::<Remote<ClientAddr>>()
-            .map(|a| *a.as_ref())
+        req.extensions().get::<Remote<ClientAddr>>().map(|a| **a)
     }
 
     fn src_tls<B>(&self, req: &http::Request<B>) -> tls::ConditionalServerTls {
