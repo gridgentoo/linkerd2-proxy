@@ -10,12 +10,12 @@ use linkerd_app_core::{
     Error,
 };
 use linkerd_server_policy::{
-    self as policy,
     http_route::{
         self,
         filter::{InvalidRedirect, Redirection},
         /* HttpRouteMatch, */
     },
+    Meta as RouteMeta, RouteFilter,
 };
 use std::{sync::Arc, task};
 
@@ -50,11 +50,11 @@ pub enum RouteError {
     #[error("invalid redirect: {0}")]
     InvalidRedirect(#[from] InvalidRedirect),
 
-    #[error("request redirected")]
+    #[error("request redirected to {}", .0.location)]
     Redirect(Redirection),
 
     #[error("unknown filter type in route: {} {} {}", meta.group, meta.kind, meta.name)]
-    UnknownFilter { meta: Arc<policy::Meta> },
+    UnknownFilter { meta: Arc<RouteMeta> },
 }
 
 // === impl NewAuthorizeHttp ===
@@ -118,7 +118,10 @@ where
         let (rt_match, route) =
             match http_route::find(routes.as_deref().into_iter().flatten(), &req) {
                 Some(rt) => rt,
-                None => return future::Either::Right(future::err(RouteError::NotFound.into())),
+                None => {
+                    // TODO metrics...
+                    return future::Either::Right(future::err(RouteError::NotFound.into()));
+                }
             };
 
         let _authz = match route
@@ -139,35 +142,30 @@ where
                 todo!()
             }
         };
-        // TODO permit, metrics, etc..
 
         for filter in &route.filters {
             match filter {
-                policy::RouteFilter::RequestHeaders(rh) => {
+                RouteFilter::RequestHeaders(rh) => {
                     rh.apply(req.headers_mut());
                 }
-                policy::RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
-                    Ok(redirection) => {
-                        return future::Either::Right(future::err(
-                            RouteError::Redirect(redirection).into(),
-                        ))
-                    }
-                    Err(invalid) => {
-                        return future::Either::Right(future::err(
-                            RouteError::InvalidRedirect(invalid).into(),
-                        ))
-                    }
-                },
-                policy::RouteFilter::Unknown => {
+                RouteFilter::Redirect(redir) => {
                     return future::Either::Right(future::err(
-                        RouteError::UnknownFilter {
-                            meta: route.meta.clone(),
-                        }
-                        .into(),
+                        match redir.apply(req.uri(), &rt_match) {
+                            Ok(redirection) => RouteError::Redirect(redirection).into(),
+                            Err(invalid) => RouteError::InvalidRedirect(invalid).into(),
+                        },
+                    ));
+                }
+                RouteFilter::Unknown => {
+                    let meta = route.meta.clone();
+                    return future::Either::Right(future::err(
+                        RouteError::UnknownFilter { meta }.into(),
                     ));
                 }
             }
         }
+
+        // TODO permit, metrics, etc..
 
         // tracing::trace!(policy = ?self.policy, "Authorizing request");
         // match self.policy.check_authorized(self.client_addr, &self.tls) {
