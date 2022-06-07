@@ -6,7 +6,10 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-pub use self::authorize::{NewAuthorizeHttp, NewAuthorizeTcp};
+pub use self::authorize::{
+    HttpRouteInvalidRedirect, HttpRouteNotFound, HttpRouteRedirect, HttpRouteUnauthorized,
+    HttpRouteUnknownFilter, NewAuthorizeHttp, NewAuthorizeTcp,
+};
 pub use self::config::Config;
 pub(crate) use self::store::Store;
 
@@ -57,6 +60,7 @@ pub struct ServerPermit {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RoutePermit {
+    pub dst: OrigDstAddr,
     pub labels: RouteAuthzLabels,
 }
 

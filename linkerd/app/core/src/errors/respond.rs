@@ -193,7 +193,12 @@ impl SyntheticHttpResponse {
         version: http::Version,
         emit_headers: bool,
     ) -> http::Response<B> {
-        debug!(status = %self.http_status, ?version, close = %self.close_connection, "Handling error on HTTP connection");
+        debug!(
+            status = %self.http_status,
+            ?version,
+            close = %self.close_connection,
+            "Handling error on HTTP connection"
+        );
         let mut rsp = http::Response::builder()
             .status(self.http_status)
             .version(version)
@@ -205,12 +210,14 @@ impl SyntheticHttpResponse {
 
         if self.close_connection {
             if version == http::Version::HTTP_11 {
-                // Notify the (proxy or non-proxy) client that the connection will be closed.
+                // Notify the (proxy or non-proxy) client that the connection
+                // will be closed.
                 rsp = rsp.header(http::header::CONNECTION, "close");
             }
 
-            // Tell the remote outbound proxy that it should close the proxied connection to its
-            // application, i.e. so the application can choose another replica.
+            // Tell the remote outbound proxy that it should close the proxied
+            // connection to its application, i.e. so the application can choose
+            // another replica.
             if emit_headers {
                 // TODO only set when meshed.
                 rsp = rsp.header(L5D_PROXY_CONNECTION, "close");
@@ -373,7 +380,8 @@ where
                 rescue,
                 emit_headers,
             } => {
-                // should not be calling poll_data if we have set trailers derived from an error
+                // should not be calling poll_data if we have set trailers
+                // derived from an error
                 assert!(trailers.is_none());
                 match inner.poll_data(cx) {
                     Poll::Ready(Some(Err(error))) => {

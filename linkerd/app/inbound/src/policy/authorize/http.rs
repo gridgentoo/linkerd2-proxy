@@ -16,7 +16,6 @@ use linkerd_server_policy::{
     http_route::{
         self,
         filter::{InvalidRedirect, Redirection},
-        /* HttpRouteMatch, */
     },
     Meta as RouteMeta, RouteFilter,
 };
@@ -46,19 +45,24 @@ pub struct AuthorizeHttp<T, N> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum RouteError {
-    #[error("no route found for request")]
-    NotFound,
+#[error("no route found for request")]
+pub struct HttpRouteNotFound(());
 
-    #[error("invalid redirect: {0}")]
-    InvalidRedirect(#[from] InvalidRedirect),
+#[derive(Debug, thiserror::Error)]
+#[error("invalid redirect: {0}")]
+pub struct HttpRouteInvalidRedirect(#[from] pub InvalidRedirect);
 
-    #[error("request redirected to {}", .0.location)]
-    Redirect(Redirection),
+#[derive(Debug, thiserror::Error)]
+#[error("request redirected to {}", .0.location)]
+pub struct HttpRouteRedirect(pub Redirection);
 
-    #[error("unknown filter type in route: {} {} {}", meta.group, meta.kind, meta.name)]
-    UnknownFilter { meta: Arc<RouteMeta> },
-}
+#[derive(Debug, thiserror::Error)]
+#[error("unknown filter type in route: {} {} {}", .0.group, .0.kind, .0.name)]
+pub struct HttpRouteUnknownFilter(Arc<RouteMeta>);
+
+#[derive(Debug, thiserror::Error)]
+#[error("unauthorized request on route")]
+pub struct HttpRouteUnauthorized(());
 
 // === impl NewAuthorizeHttp ===
 
@@ -124,7 +128,7 @@ where
                 Some(rt) => rt,
                 None => {
                     // TODO metrics...
-                    return future::Either::Right(future::err(RouteError::NotFound.into()));
+                    return future::Either::Right(future::err(HttpRouteNotFound(()).into()));
                 }
             };
 
@@ -135,15 +139,19 @@ where
         {
             Some(authz) => authz,
             None => {
-                // tracing::info!(
-                //     server = %format_args!("{}:{}", self.policy.server_label().kind, self.policy.server_label().name),
-                //     tls = ?self.tls,
-                //     client = %self.client_addr,
-                //     "Request denied",
-                // );
+                tracing::info!(
+                    server.group = %server.0.group,
+                    server.kind = %server.0.kind,
+                    server.name = %server.0.name,
+                    route.group = %route.meta.group,
+                    route.kind = %route.meta.kind,
+                    route.name = %route.meta.name,
+                    tls = ?self.tls,
+                    client = %self.client_addr,
+                    "Request denied",
+                );
                 // self.metrics.deny(&self.policy, self.tls.clone());
-                // return future::Either::Right(future::err(e.into()))
-                todo!()
+                return future::Either::Right(future::err(HttpRouteUnauthorized(()).into()));
             }
         };
 
@@ -155,16 +163,14 @@ where
                 RouteFilter::Redirect(redir) => {
                     return future::Either::Right(future::err(
                         match redir.apply(req.uri(), &rt_match) {
-                            Ok(redirection) => RouteError::Redirect(redirection).into(),
-                            Err(invalid) => RouteError::InvalidRedirect(invalid).into(),
+                            Ok(redirection) => HttpRouteRedirect(redirection).into(),
+                            Err(invalid) => HttpRouteInvalidRedirect(invalid).into(),
                         },
                     ));
                 }
                 RouteFilter::Unknown => {
                     let meta = route.meta.clone();
-                    return future::Either::Right(future::err(
-                        RouteError::UnknownFilter { meta }.into(),
-                    ));
+                    return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));
                 }
             }
         }
@@ -189,8 +195,10 @@ where
             client.ip = %self.client_addr.0.ip(),
             "Request authorized",
         );
-        let permit = RoutePermit { labels };
+        let dst = self.policy.dst_addr();
+        let permit = RoutePermit { dst, labels };
         self.metrics.allow(&permit, self.tls.clone());
+
         let svc = self.inner.new_service((permit, self.target.clone()));
         future::Either::Left(svc.oneshot(req).err_into::<Error>())
     }

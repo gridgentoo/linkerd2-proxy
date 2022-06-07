@@ -1,7 +1,8 @@
 use crate::policy::{AllowPolicy, RoutePermit, ServerPermit};
 use linkerd_app_core::{
     metrics::{
-        metrics, Counter, FmtMetrics, ServerAuthzLabels, ServerLabel, TargetAddr, TlsAccept,
+        metrics, Counter, FmtMetrics, RouteAuthzLabels, ServerAuthzLabels, ServerLabel, TargetAddr,
+        TlsAccept,
     },
     tls,
 };
@@ -35,13 +36,13 @@ pub(crate) struct TcpAuthzMetrics(Arc<TcpInner>);
 
 #[derive(Debug, Default)]
 struct HttpInner {
-    allow: Mutex<HashMap<AuthzKey, Counter>>,
+    allow: Mutex<HashMap<RouteAuthzKey, Counter>>,
     deny: Mutex<HashMap<SrvKey, Counter>>,
 }
 
 #[derive(Debug, Default)]
 struct TcpInner {
-    allow: Mutex<HashMap<AuthzKey, Counter>>,
+    allow: Mutex<HashMap<ServerAuthzKey, Counter>>,
     deny: Mutex<HashMap<SrvKey, Counter>>,
     terminate: Mutex<HashMap<SrvKey, Counter>>,
 }
@@ -54,9 +55,16 @@ struct SrvKey {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-struct AuthzKey {
+struct ServerAuthzKey {
     target: TargetAddr,
     authz: ServerAuthzLabels,
+    tls: tls::ConditionalServerTls,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct RouteAuthzKey {
+    target: TargetAddr,
+    authz: RouteAuthzLabels,
     tls: tls::ConditionalServerTls,
 }
 
@@ -67,7 +75,7 @@ impl HttpAuthzMetrics {
         self.0
             .allow
             .lock()
-            .entry(AuthzKey::new(permit, tls))
+            .entry(RouteAuthzKey::new(permit, tls))
             .or_default()
             .incr();
     }
@@ -120,7 +128,7 @@ impl TcpAuthzMetrics {
         self.0
             .allow
             .lock()
-            .entry(AuthzKey::new(permit, tls))
+            .entry(ServerAuthzKey::new(permit, tls))
             .or_default()
             .incr();
     }
@@ -200,9 +208,21 @@ impl SrvKey {
     }
 }
 
-// === impl AuthzKey ===
+// === impl RouteAuthzKey ===
 
-impl AuthzKey {
+impl RouteAuthzKey {
+    fn new(permit: &RoutePermit, tls: tls::ConditionalServerTls) -> Self {
+        Self {
+            tls,
+            target: TargetAddr(permit.dst.into()),
+            authz: permit.labels.clone(),
+        }
+    }
+}
+
+// === impl ServerAuthzKey ===
+
+impl ServerAuthzKey {
     fn new(permit: &ServerPermit, tls: tls::ConditionalServerTls) -> Self {
         Self {
             tls,

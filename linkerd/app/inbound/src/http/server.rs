@@ -15,6 +15,7 @@ use linkerd_app_core::{
     Error, Result,
 };
 use linkerd_http_access_log::NewAccessLog;
+use linkerd_server_policy::http_route::filter::InvalidRedirect;
 use tracing::debug_span;
 
 #[derive(Copy, Clone, Debug)]
@@ -127,9 +128,27 @@ impl<T: Param<tls::ConditionalServerTls>> ExtractParam<errors::respond::EmitHead
 
 impl errors::HttpRescue<Error> for ServerRescue {
     fn rescue(&self, error: Error) -> Result<errors::SyntheticHttpResponse> {
-        if let Some(cause) = errors::cause_ref::<crate::policy::DeniedUnauthorized>(&*error) {
+        // TODO handle route authorization errors
+        if let Some(cause) = errors::cause_ref::<crate::policy::HttpRouteNotFound>(&*error) {
+            return Ok(errors::SyntheticHttpResponse::not_found(cause));
+        }
+        if let Some(cause) = errors::cause_ref::<crate::policy::HttpRouteUnauthorized>(&*error) {
             return Ok(errors::SyntheticHttpResponse::permission_denied(cause));
         }
+        if let Some(crate::policy::HttpRouteInvalidRedirect(cause)) =
+            errors::cause_ref::<crate::policy::HttpRouteInvalidRedirect>(&*error)
+        {
+            if matches!(cause, InvalidRedirect::Loop) {
+                return Ok(errors::SyntheticHttpResponse::loop_detected(cause));
+            }
+        }
+        if let Some(crate::policy::HttpRouteRedirect(redirect)) =
+            errors::cause_ref::<crate::policy::HttpRouteRedirect>(&*error)
+        {
+            let _ = redirect;
+            todo!() // redirect
+        }
+
         if let Some(cause) = errors::cause_ref::<crate::GatewayDomainInvalid>(&*error) {
             return Ok(errors::SyntheticHttpResponse::not_found(cause));
         }
