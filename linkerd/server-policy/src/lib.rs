@@ -1,25 +1,22 @@
 #![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
 #![forbid(unsafe_code)]
 
-mod authz;
+pub mod authz;
 #[cfg(feature = "proto")]
 mod proto;
 
-pub use self::authz::{Authentication, Authorization, Network, Suffix};
+pub use self::authz::{Authentication, Authorization};
 pub use linkerd_http_route::{
     self as http_route,
     filter::{ModifyRequestHeader, RedirectRequest},
 };
-use std::{sync::Arc, time};
-
-pub type HttpRoute = linkerd_http_route::HttpRoute<RoutePolicy>;
-pub type HttpRule = linkerd_http_route::HttpRule<RoutePolicy>;
+use std::{borrow::Cow, hash::Hash, sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerPolicy {
     pub protocol: Protocol,
     pub authorizations: Arc<[Authorization]>,
-    pub labels: Arc<Labels>,
+    pub meta: Arc<Meta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -38,23 +35,27 @@ pub enum Protocol {
     Tls,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct Meta {
+    pub group: Cow<'static, str>,
+    pub kind: Cow<'static, str>,
+    pub name: Cow<'static, str>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
     pub disable_info_headers: bool,
     pub routes: Arc<[HttpRoute]>,
 }
 
+pub type HttpRoute = linkerd_http_route::HttpRoute<RoutePolicy>;
+pub type HttpRule = linkerd_http_route::HttpRule<RoutePolicy>;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RoutePolicy {
     pub authorizations: Arc<[Authorization]>,
     pub filters: Vec<RouteFilter>,
-    pub labels: Arc<Labels>,
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Labels {
-    pub kind: String,
-    pub name: String,
+    pub meta: Arc<Meta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -69,33 +70,6 @@ pub enum RouteFilter {
     /// Route handlers must be careful about this situation, as it may not be
     /// appropriate for a proxy to skip filtering logic.
     Unknown,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum InvalidLabels {
-    #[error("missing label 'kind'")]
-    MissingKind,
-
-    #[error("missing label 'name'")]
-    MissingName,
-}
-
-// === impl Labels ===
-
-impl TryFrom<std::collections::HashMap<String, String>> for Labels {
-    type Error = InvalidLabels;
-
-    fn try_from(labels: std::collections::HashMap<String, String>) -> Result<Self, InvalidLabels> {
-        let kind = labels
-            .get("kind")
-            .ok_or(InvalidLabels::MissingKind)?
-            .clone();
-        let name = labels
-            .get("name")
-            .ok_or(InvalidLabels::MissingName)?
-            .clone();
-        Ok(Self { kind, name })
-    }
 }
 
 // === impl HttpConfig ===

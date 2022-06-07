@@ -14,8 +14,8 @@ use linkerd_app_core::{
     ProxyRuntime,
 };
 pub use linkerd_app_test as support;
-use linkerd_server_policy::{Authentication, Authorization, Protocol, ServerPolicy};
-use std::time::Duration;
+use linkerd_server_policy::{Authentication, Authorization, Meta, Protocol, ServerPolicy};
+use std::{sync::Arc, time::Duration};
 
 pub fn default_config() -> Config {
     let cluster_local = "svc.cluster.local."
@@ -60,13 +60,15 @@ pub fn default_config() -> Config {
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![Default::default()],
-                    labels: Arc::new(Labels {
+                    meta: Arc::new(Meta {
+                        group: "policy.linkerd.io".into(),
                         kind: "serverauthorization".into(),
                         name: "testsaz".into(),
                     }),
                 }]
                 .into(),
-                labels: Arc::new(Labels {
+                meta: Arc::new(Meta {
+                    group: "policy.linkerd.io".into(),
                     kind: "server".into(),
                     name: "testsrv".into(),
                 }),

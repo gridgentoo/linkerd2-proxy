@@ -119,7 +119,8 @@ mod tests {
         svc::{NewService, ServiceExt},
         Error,
     };
-    use linkerd_server_policy::{Authentication, Authorization, ServerPolicy};
+    use linkerd_server_policy::{Authentication, Authorization, Meta, ServerPolicy};
+    use std::sync::Arc;
 
     #[tokio::test(flavor = "current_thread")]
     async fn default_allow() {
@@ -130,13 +131,15 @@ mod tests {
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![Default::default()],
-                    labels: Arc::new(Labels {
+                    meta: Arc::new(Meta {
+                        group: "policy.linkerd.io".into(),
                         kind: "serverauthorization".into(),
                         name: "testsaz".into(),
                     }),
                 }]
                 .into(),
-                labels: Arc::new(Labels {
+                meta: Arc::new(Meta {
+                    group: "policy.linkerd.io".into(),
                     kind: "server".into(),
                     name: "testsrv".into(),
                 }),

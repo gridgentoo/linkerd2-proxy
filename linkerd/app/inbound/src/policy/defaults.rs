@@ -1,5 +1,7 @@
 use linkerd_app_core::{IpNet, Ipv4Net, Ipv6Net};
-use linkerd_server_policy::{Authentication, Authorization, Protocol, ServerPolicy, Suffix};
+use linkerd_server_policy::{
+    authz::Suffix, Authentication, Authorization, Meta, Protocol, ServerPolicy,
+};
 use std::{sync::Arc, time::Duration};
 
 pub fn all_authenticated(timeout: Duration) -> ServerPolicy {
@@ -55,7 +57,7 @@ fn authenticated() -> Authentication {
 }
 
 fn mk(
-    name: &str,
+    name: &'static str,
     nets: impl IntoIterator<Item = IpNet>,
     authentication: Authentication,
     timeout: Duration,
@@ -68,13 +70,15 @@ fn mk(
         authorizations: vec![Authorization {
             networks: nets.into_iter().map(Into::into).collect(),
             authentication,
-            labels: Arc::new(Labels {
+            meta: Arc::new(Meta {
+                group: "default".into(),
                 kind: "default".into(),
                 name: name.into(),
             }),
         }]
         .into(),
-        labels: Arc::new(Labels {
+        meta: Arc::new(Meta {
+            group: "default".into(),
             kind: "default".into(),
             name: name.into(),
         }),

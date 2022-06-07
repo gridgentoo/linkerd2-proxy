@@ -5,49 +5,55 @@ use linkerd_http_route::{
     proto::{HostMatchError, RequestHeaderModifierError, RequestRedirectError, RouteMatchError},
     MatchHost, MatchRequest,
 };
-use std::{net::IpAddr, sync::Arc};
+use std::{borrow::Cow, net::IpAddr, sync::Arc, time::Duration};
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("protocol missing detect timeout")]
+pub enum InvalidServer {
+    #[error("missing protocol detection timeout")]
     MissingDetectTimeout,
 
-    #[error("protocol has a negative detect timeout: {0:?}")]
-    NegativeDetectTimeout(time::Duration),
+    #[error("invalid protocol detection timeout: {0:?}")]
+    NegativeDetectTimeout(Duration),
 
-    #[error("server missing proxy protocol")]
+    #[error("missing protocol detection timeout")]
     MissingProxyProtocol,
 
+    #[error("invalid label: {0}")]
+    InvalidLabel(#[from] InvalidLabel),
+
     #[error("invalid authorization: {0}")]
-    Authz(#[from] AuthzError),
+    InvalidAuthz(#[from] InvalidAuthz),
 
     #[error("invalid HTTP route: {0}")]
-    HttpRoute(#[from] HttpRouteError),
-
-    #[error("invalid labels: {0}")]
-    InvalidLabels(#[from] InvalidLabels),
+    InvalidHttpRoute(#[from] InvalidHttpRoute),
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AuthzError {
+pub enum InvalidAuthz {
     #[error("missing networks")]
     MissingNetworks,
+
+    #[error("missing network")]
+    MissingNetwork,
+
+    #[error("missing authentications")]
+    MissingAuthentications,
 
     #[error("invalid network: {0}")]
     InvalidNetwork(#[from] InvalidIpNetwork),
 
-    #[error("at least one client must be permitted")]
-    MissingClients,
-
-    #[error("authentication is not valid")]
-    InvalidAuthentication,
-
-    #[error("invalid labels: {0}")]
-    InvalidLabels(#[from] InvalidLabels),
+    #[error("invalid label: {0}")]
+    InvalidLabel(#[from] InvalidLabel),
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HttpRouteError {
+pub enum InvalidLabel {
+    #[error("missing 'name' label")]
+    MissingName,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidHttpRoute {
     #[error("invalid host match: {0}")]
     InvalidHostMatch(#[from] HostMatchError),
 
@@ -61,174 +67,225 @@ pub enum HttpRouteError {
     InvalidRedirect(#[from] RequestRedirectError),
 
     #[error("invalid authorization: {0}")]
-    Authz(#[from] AuthzError),
+    InvalidAuthz(#[from] InvalidAuthz),
 
     #[error("invalid filter with an unkown kind")]
     MissingFilter,
 
     #[error("invalid labels: {0}")]
-    InvalidLabels(#[from] InvalidLabels),
+    InvalidLabel(#[from] InvalidLabel),
 }
 
 impl TryFrom<api::Server> for ServerPolicy {
-    type Error = Error;
+    type Error = InvalidServer;
 
-    fn try_from(proto: api::Server) -> Result<ServerPolicy, Self::Error> {
-        let protocol = match proto.protocol {
-            Some(api::ProxyProtocol { kind: Some(k) }) => match k {
-                api::proxy_protocol::Kind::Detect(api::proxy_protocol::Detect {
-                    timeout,
-                    http_disable_informational_headers,
-                    http_routes,
-                }) => {
-                    let timeout = timeout
-                        .ok_or(Error::MissingDetectTimeout)?
+    fn try_from(proto: api::Server) -> Result<Self, Self::Error> {
+        let protocol = match proto
+            .protocol
+            .and_then(|api::ProxyProtocol { kind }| kind)
+            .ok_or(InvalidServer::MissingProxyProtocol)?
+        {
+            api::proxy_protocol::Kind::Detect(api::proxy_protocol::Detect {
+                timeout,
+                http_disable_informational_headers,
+                http_routes,
+            }) => {
+                let http = HttpConfig::try_new(http_disable_informational_headers, http_routes)?;
+                Protocol::Detect {
+                    http,
+                    timeout: timeout
+                        .ok_or(InvalidServer::MissingDetectTimeout)?
                         .try_into()
-                        .map_err(Error::NegativeDetectTimeout)?;
-                    let http =
-                        HttpConfig::try_new(http_disable_informational_headers, http_routes)?;
-                    Protocol::Detect { timeout, http }
+                        .map_err(InvalidServer::NegativeDetectTimeout)?,
                 }
+            }
 
-                api::proxy_protocol::Kind::Http1(api::proxy_protocol::Http1 {
-                    disable_informational_headers,
-                    routes,
-                }) => {
-                    let http = HttpConfig::try_new(disable_informational_headers, routes)?;
-                    Protocol::Http1(http)
-                }
+            api::proxy_protocol::Kind::Http1(api::proxy_protocol::Http1 {
+                disable_informational_headers,
+                routes,
+            }) => {
+                let http = HttpConfig::try_new(disable_informational_headers, routes)?;
+                Protocol::Http1(http)
+            }
 
-                api::proxy_protocol::Kind::Http2(api::proxy_protocol::Http2 {
-                    disable_informational_headers,
-                    routes,
-                }) => {
-                    let http = HttpConfig::try_new(disable_informational_headers, routes)?;
-                    Protocol::Http2(http)
-                }
+            api::proxy_protocol::Kind::Http2(api::proxy_protocol::Http2 {
+                disable_informational_headers,
+                routes,
+            }) => {
+                let http = HttpConfig::try_new(disable_informational_headers, routes)?;
+                Protocol::Http2(http)
+            }
 
-                api::proxy_protocol::Kind::Grpc(api::proxy_protocol::Grpc {
-                    disable_informational_headers,
-                }) => Protocol::Grpc {
-                    disable_info_headers: disable_informational_headers,
-                },
-
-                api::proxy_protocol::Kind::Opaque(_) => Protocol::Opaque,
-                api::proxy_protocol::Kind::Tls(_) => Protocol::Tls,
+            api::proxy_protocol::Kind::Grpc(api::proxy_protocol::Grpc {
+                disable_informational_headers,
+            }) => Protocol::Grpc {
+                disable_info_headers: disable_informational_headers,
             },
-            _ => return Err(Error::MissingProxyProtocol),
+
+            api::proxy_protocol::Kind::Tls(_) => Protocol::Tls,
+            api::proxy_protocol::Kind::Opaque(_) => Protocol::Opaque,
         };
 
-        let authorizations = to_authorizations(proto.authorizations)?;
+        let authorizations = mk_authorizations(proto.authorizations)?;
 
-        let labels = Labels::try_from(proto.labels)?.into();
+        let meta = Meta::try_new(&proto.labels, "server")?;
         Ok(ServerPolicy {
             protocol,
             authorizations,
-            labels,
+            meta,
         })
     }
 }
 
-fn to_authorizations(authzs: Vec<api::Authz>) -> Result<Arc<[Authorization]>, AuthzError> {
+fn mk_authorizations(authzs: Vec<api::Authz>) -> Result<Arc<[Authorization]>, InvalidAuthz> {
     let loopback = Authorization {
-        labels: Arc::new(Labels {
-            kind: "default".to_string(),
-            name: "localhost".to_string(),
-        }),
         authentication: Authentication::Unauthenticated,
         networks: vec![
-            Network {
+            authz::Network {
                 net: IpAddr::from([127, 0, 0, 1]).into(),
                 except: vec![],
             },
-            Network {
+            authz::Network {
                 net: IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]).into(),
                 except: vec![],
             },
         ],
+        meta: Arc::new(Meta {
+            group: "default".into(),
+            kind: "default".into(),
+            name: "localhost".into(),
+        }),
     };
+
     authzs
         .into_iter()
-        .map(to_authorization)
+        .map(Authorization::try_from)
         .chain(Some(Ok(loopback)))
-        .collect::<Result<Arc<[_]>, AuthzError>>()
+        .collect::<Result<Arc<[_]>, _>>()
 }
 
-fn to_authorization(az: api::Authz) -> Result<Authorization, AuthzError> {
-    let api::Authz {
-        labels,
-        authentication,
-        networks,
-    } = az;
+impl TryFrom<api::Authz> for Authorization {
+    type Error = InvalidAuthz;
 
-    let networks = {
+    fn try_from(proto: api::Authz) -> Result<Self, Self::Error> {
+        let api::Authz {
+            labels,
+            authentication,
+            networks,
+        } = proto;
+
         if networks.is_empty() {
-            return Err(AuthzError::MissingNetworks);
+            return Err(InvalidAuthz::MissingNetworks);
         }
-        networks
+        let networks = networks
             .into_iter()
             .map(|api::Network { net, except }| {
-                let net = net.ok_or(AuthzError::MissingNetworks)?.try_into()?;
+                let net = net.ok_or(InvalidAuthz::MissingNetwork)?.try_into()?;
                 let except = except
                     .into_iter()
                     .map(|net| net.try_into())
                     .collect::<Result<Vec<IpNet>, _>>()?;
-                Ok(Network { net, except })
+                Ok(authz::Network { net, except })
             })
-            .collect::<Result<Vec<_>, AuthzError>>()?
-    };
+            .collect::<Result<Vec<_>, InvalidAuthz>>()?;
 
-    let authn = {
-        use api::authn::{permit_mesh_tls::Clients, Permit, PermitMeshTls};
-        match authentication
-            .and_then(|a| a.permit)
-            .ok_or(AuthzError::InvalidAuthentication)?
+        let authn = match authentication
+            .and_then(|api::Authn { permit }| permit)
+            .ok_or(InvalidAuthz::MissingAuthentications)?
         {
-            Permit::Unauthenticated(_) => Authentication::Unauthenticated,
-            Permit::MeshTls(PermitMeshTls { clients }) => {
-                match clients.ok_or(AuthzError::MissingClients)? {
-                    Clients::Unauthenticated(_) => Authentication::TlsUnauthenticated,
-                    Clients::Identities(ids) => Authentication::TlsAuthenticated {
-                        identities: ids
+            api::authn::Permit::Unauthenticated(_) => Authentication::Unauthenticated,
+            api::authn::Permit::MeshTls(api::authn::PermitMeshTls { clients }) => {
+                match clients.ok_or(InvalidAuthz::MissingAuthentications)? {
+                    api::authn::permit_mesh_tls::Clients::Unauthenticated(_) => {
+                        Authentication::TlsUnauthenticated
+                    }
+                    api::authn::permit_mesh_tls::Clients::Identities(ids) => {
+                        let identities = ids
                             .identities
                             .into_iter()
                             .map(|api::Identity { name }| name)
-                            .collect(),
-                        suffixes: ids
+                            .collect();
+                        let suffixes = ids
                             .suffixes
                             .into_iter()
-                            .map(|api::IdentitySuffix { parts }| Suffix::from(parts))
-                            .collect(),
-                    },
+                            .map(|api::IdentitySuffix { parts }| authz::Suffix::from(parts))
+                            .collect();
+                        Authentication::TlsAuthenticated {
+                            identities,
+                            suffixes,
+                        }
+                    }
                 }
             }
-        }
-    };
+        };
 
-    let labels = Labels::try_from(labels)?.into();
-    Ok(Authorization {
-        networks,
-        authentication: authn,
-        labels,
-    })
+        let meta = Meta::try_new(&labels, "serverauthorization")?;
+        Ok(Authorization {
+            networks,
+            authentication: authn,
+            meta,
+        })
+    }
+}
+
+impl Meta {
+    fn try_new(
+        labels: &std::collections::HashMap<String, String>,
+        default_kind: &'static str,
+    ) -> Result<Arc<Meta>, InvalidLabel> {
+        let group = labels
+            .get("group")
+            .cloned()
+            .map(Cow::Owned)
+            // If no group is specified, we leave it blank. This is to avoid setting
+            // a group when using synthetic kinds like "default".
+            .unwrap_or(Cow::Borrowed(""));
+
+        let name = labels.get("name").ok_or(InvalidLabel::MissingName)?.clone();
+        if let Some(kind) = labels.get("kind").cloned() {
+            return Ok(Arc::new(Meta {
+                group,
+                kind: kind.into(),
+                name: name.into(),
+            }));
+        }
+
+        // Older control plane versions don't set the kind label and, instead, may
+        // encode kinds in the name like `default:deny`.
+        let mut parts = name.splitn(2, ':');
+        let meta = match (parts.next().unwrap().to_owned(), parts.next()) {
+            (kind, Some(name)) => Meta {
+                group,
+                kind: kind.into(),
+                name: name.to_owned().into(),
+            },
+            (name, None) => Meta {
+                group,
+                kind: Cow::Borrowed(default_kind),
+                name: name.into(),
+            },
+        };
+
+        Ok(Arc::new(meta))
+    }
 }
 
 impl HttpConfig {
     fn try_new(
         disable_info_headers: bool,
         routes: Vec<api::HttpRoute>,
-    ) -> Result<Self, HttpRouteError> {
+    ) -> Result<Self, InvalidHttpRoute> {
         let routes = routes
             .into_iter()
             .map(Self::try_route)
-            .collect::<Result<Arc<[HttpRoute]>, HttpRouteError>>()?;
+            .collect::<Result<Arc<[HttpRoute]>, InvalidHttpRoute>>()?;
         Ok(HttpConfig {
             disable_info_headers,
             routes,
         })
     }
 
-    fn try_route(proto: api::HttpRoute) -> Result<HttpRoute, HttpRouteError> {
+    fn try_route(proto: api::HttpRoute) -> Result<HttpRoute, InvalidHttpRoute> {
         let api::HttpRoute {
             hosts,
             authorizations,
@@ -241,21 +298,21 @@ impl HttpConfig {
             .map(MatchHost::try_from)
             .collect::<Result<Vec<_>, HostMatchError>>()?;
 
-        let authzs = to_authorizations(authorizations)?;
-        let labels = Arc::new(Labels::try_from(labels)?);
+        let authzs = mk_authorizations(authorizations)?;
+        let meta = Meta::try_new(&labels, "HTTPRoute")?;
         let rules = rules
             .into_iter()
-            .map(|r| Self::try_rule(authzs.clone(), labels.clone(), r))
-            .collect::<Result<Vec<_>, HttpRouteError>>()?;
+            .map(|r| Self::try_rule(authzs.clone(), meta.clone(), r))
+            .collect::<Result<Vec<_>, InvalidHttpRoute>>()?;
 
         Ok(HttpRoute { hosts, rules })
     }
 
     fn try_rule(
         authorizations: Arc<[Authorization]>,
-        labels: Arc<Labels>,
+        meta: Arc<Meta>,
         proto: api::http_route::Rule,
-    ) -> Result<HttpRule, HttpRouteError> {
+    ) -> Result<HttpRule, InvalidHttpRoute> {
         let matches = proto
             .matches
             .into_iter()
@@ -277,12 +334,12 @@ impl HttpConfig {
                     }
                     None => Ok(RouteFilter::Unknown),
                 })
-                .collect::<Result<Vec<_>, HttpRouteError>>()?;
+                .collect::<Result<Vec<_>, InvalidHttpRoute>>()?;
 
             RoutePolicy {
                 authorizations,
                 filters,
-                labels,
+                meta,
             }
         };
 

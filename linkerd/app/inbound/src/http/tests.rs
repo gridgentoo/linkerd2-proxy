@@ -18,7 +18,7 @@ use linkerd_app_core::{
 };
 use linkerd_app_test::connect::ConnectFuture;
 use linkerd_tracing::test::trace_init;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tracing::Instrument;
 
 fn build_server<I>(
@@ -610,13 +610,15 @@ impl svc::Param<policy::AllowPolicy> for Target {
                 authorizations: vec![policy::Authorization {
                     authentication: policy::Authentication::Unauthenticated,
                     networks: vec![std::net::IpAddr::from([192, 0, 2, 3]).into()],
-                    labels: Arc::new(Labels {
+                    meta: Arc::new(policy::Meta {
+                        group: "policy.linkerd.io".into(),
                         kind: "serverauthorization".into(),
                         name: "testsaz".into(),
                     }),
                 }]
                 .into(),
-                labels: Arc::new(Labels {
+                meta: Arc::new(policy::Meta {
+                    group: "policy.linkerd.io".into(),
                     kind: "server".into(),
                     name: "testsrv".into(),
                 }),
@@ -628,10 +630,11 @@ impl svc::Param<policy::AllowPolicy> for Target {
 
 impl svc::Param<policy::ServerLabel> for Target {
     fn param(&self) -> policy::ServerLabel {
-        policy::ServerLabel {
+        policy::ServerLabel(Arc::new(policy::Meta {
+            group: "policy.linkerd.io".into(),
             kind: "server".into(),
             name: "testsrv".into(),
-        }
+        }))
     }
 }
 

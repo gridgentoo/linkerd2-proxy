@@ -1,6 +1,8 @@
-use crate::policy::{self, AllowPolicy, Permit};
+use crate::policy::{AllowPolicy, ServerPermit};
 use linkerd_app_core::{
-    metrics::{metrics, AuthzLabels, Counter, FmtMetrics, ServerLabel, TargetAddr, TlsAccept},
+    metrics::{
+        metrics, Counter, FmtMetrics, ServerAuthzLabels, ServerLabel, TargetAddr, TlsAccept,
+    },
     tls,
 };
 use parking_lot::Mutex;
@@ -47,21 +49,21 @@ struct TcpInner {
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct SrvKey {
     target: TargetAddr,
-    labels: Arc<policy::Labels>,
+    labels: ServerLabel,
     tls: tls::ConditionalServerTls,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct AuthzKey {
     target: TargetAddr,
-    authz: AuthzLabels,
+    authz: ServerAuthzLabels,
     tls: tls::ConditionalServerTls,
 }
 
 // === impl HttpAuthzMetrics ===
 
 impl HttpAuthzMetrics {
-    pub fn allow(&self, permit: &Permit, tls: tls::ConditionalServerTls) {
+    pub fn allow(&self, permit: &ServerPermit, tls: tls::ConditionalServerTls) {
         self.0
             .allow
             .lock()
@@ -101,7 +103,7 @@ impl FmtMetrics for HttpAuthzMetrics {
             inbound_http_authz_deny_total.fmt_scopes(
                 f,
                 deny.iter()
-                    .map(|(k, c)| ((k.target, (&k.server, TlsAccept(&k.tls))), c)),
+                    .map(|(k, c)| ((k.target, (&k.labels, TlsAccept(&k.tls))), c)),
                 |c| c,
             )?;
         }
@@ -114,7 +116,7 @@ impl FmtMetrics for HttpAuthzMetrics {
 // === impl TcpAuthzMetrics ===
 
 impl TcpAuthzMetrics {
-    pub fn allow(&self, permit: &Permit, tls: tls::ConditionalServerTls) {
+    pub fn allow(&self, permit: &ServerPermit, tls: tls::ConditionalServerTls) {
         self.0
             .allow
             .lock()
@@ -163,7 +165,7 @@ impl FmtMetrics for TcpAuthzMetrics {
             inbound_tcp_authz_deny_total.fmt_scopes(
                 f,
                 deny.iter()
-                    .map(|(k, c)| ((k.target, (&k.server, TlsAccept(&k.tls))), c)),
+                    .map(|(k, c)| ((k.target, (&k.labels, TlsAccept(&k.tls))), c)),
                 |c| c,
             )?;
         }
@@ -176,7 +178,7 @@ impl FmtMetrics for TcpAuthzMetrics {
                 f,
                 terminate
                     .iter()
-                    .map(|(k, c)| ((k.target, (&k.server, TlsAccept(&k.tls))), c)),
+                    .map(|(k, c)| ((k.target, (&k.labels, TlsAccept(&k.tls))), c)),
                 |c| c,
             )?;
         }
@@ -192,7 +194,7 @@ impl SrvKey {
     fn new(policy: &AllowPolicy, tls: tls::ConditionalServerTls) -> Self {
         Self {
             target: TargetAddr(policy.dst_addr().into()),
-            server: policy.server_label(),
+            labels: policy.server_label(),
             tls,
         }
     }
@@ -201,11 +203,11 @@ impl SrvKey {
 // === impl AuthzKey ===
 
 impl AuthzKey {
-    fn new(permit: &Permit, tls: tls::ConditionalServerTls) -> Self {
+    fn new(permit: &ServerPermit, tls: tls::ConditionalServerTls) -> Self {
         Self {
+            tls,
             target: TargetAddr(permit.dst.into()),
             authz: permit.labels.clone(),
-            tls,
         }
     }
 }

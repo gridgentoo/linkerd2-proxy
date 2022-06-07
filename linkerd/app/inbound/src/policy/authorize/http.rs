@@ -2,7 +2,7 @@
 
 use crate::metrics::authz::HttpAuthzMetrics;
 
-use super::super::{AllowPolicy, Permit};
+use super::super::{AllowPolicy, ServerPermit};
 use futures::future;
 use linkerd_app_core::{
     svc, tls,
@@ -94,7 +94,7 @@ where
 impl<B, T, N, S> svc::Service<http::Request<B>> for AuthorizeHttp<T, N>
 where
     T: Clone,
-    N: svc::NewService<(Permit, T), Service = S>,
+    N: svc::NewService<(ServerPermit, T), Service = S>,
     S: svc::Service<http::Request<B>>,
     S::Error: Into<Error>,
 {

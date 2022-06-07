@@ -10,6 +10,8 @@ pub use self::authorize::{NewAuthorizeHttp, NewAuthorizeTcp};
 pub use self::config::Config;
 pub(crate) use self::store::Store;
 
+use linkerd_app_core::metrics::ServerAuthzLabels;
+pub use linkerd_app_core::metrics::ServerLabel;
 use linkerd_app_core::{
     tls,
     transport::{ClientAddr, OrigDstAddr, Remote},
@@ -17,7 +19,7 @@ use linkerd_app_core::{
 };
 use linkerd_cache::Cached;
 pub use linkerd_server_policy::{
-    self as policy, Authentication, Authorization, Labels, Protocol, ServerPolicy, Suffix,
+    authz::Suffix, Authentication, Authorization, HttpRoute, Meta, Protocol, ServerPolicy,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -26,7 +28,7 @@ use tokio::sync::watch;
 #[derive(Clone, Debug, Error)]
 #[error("unauthorized connection on {}/{}", server.kind, server.name)]
 pub struct DeniedUnauthorized {
-    server: std::sync::Arc<Labels>,
+    server: Arc<Meta>,
 }
 
 pub trait GetPolicy {
@@ -47,12 +49,11 @@ pub struct AllowPolicy {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Permit {
+pub struct ServerPermit {
     pub dst: OrigDstAddr,
     pub protocol: Protocol,
 
-    pub authz_labels: Arc<policy::Labels>,
-    pub server_labels: Arc<policy::Labels>,
+    pub labels: ServerAuthzLabels,
 }
 
 // === impl DefaultPolicy ===
@@ -70,7 +71,8 @@ impl From<DefaultPolicy> for ServerPolicy {
             DefaultPolicy::Deny => ServerPolicy {
                 protocol: Protocol::Opaque,
                 authorizations: vec![].into(),
-                labels: Arc::new(policy::Labels {
+                meta: Arc::new(Meta {
+                    group: "default".into(),
                     kind: "default".into(),
                     name: "deny".into(),
                 }),
@@ -104,8 +106,23 @@ impl AllowPolicy {
     }
 
     #[inline]
-    pub fn server_label(&self) -> Arc<policy::Labels> {
-        self.server.borrow().labels.clone()
+    pub fn group(&self) -> String {
+        self.server.borrow().meta.group.to_string()
+    }
+
+    #[inline]
+    pub fn kind(&self) -> String {
+        self.server.borrow().meta.kind.to_string()
+    }
+
+    #[inline]
+    pub fn name(&self) -> String {
+        self.server.borrow().meta.name.to_string()
+    }
+
+    #[inline]
+    pub fn server_label(&self) -> ServerLabel {
+        ServerLabel(self.server.borrow().meta.clone())
     }
 
     async fn changed(&mut self) {
@@ -115,7 +132,7 @@ impl AllowPolicy {
         }
     }
 
-    fn http_routes(&self) -> Option<Arc<[policy::HttpRoute]>> {
+    fn http_routes(&self) -> Option<Arc<[HttpRoute]>> {
         let borrow = self.server.borrow();
         match &borrow.protocol {
             Protocol::Detect { http, .. } | Protocol::Http1(http) | Protocol::Http2(http) => {
@@ -132,7 +149,7 @@ impl AllowPolicy {
 
         if server.authorizations.is_empty() {
             return Err(DeniedUnauthorized {
-                server: server.labels.clone(),
+                server: server.meta.clone(),
             });
         }
         drop(server);
@@ -146,16 +163,16 @@ impl AllowPolicy {
         &self,
         client_addr: Remote<ClientAddr>,
         tls: &tls::ConditionalServerTls,
-    ) -> Result<Permit, DeniedUnauthorized> {
+    ) -> Result<ServerPermit, DeniedUnauthorized> {
         let server = self.server.borrow();
         for authz in server.authorizations.iter() {
             if is_authorized(authz, client_addr, tls) {
-                return Ok(Permit::new(self.dst, &*server, authz));
+                return Ok(ServerPermit::new(self.dst, &*server, authz));
             }
         }
 
         Err(DeniedUnauthorized {
-            server: server.labels.clone(),
+            server: server.meta.clone(),
         })
     }
 }
@@ -196,13 +213,15 @@ fn is_authorized(
 
 // === impl Permit ===
 
-impl Permit {
+impl ServerPermit {
     fn new(dst: OrigDstAddr, server: &ServerPolicy, authz: &Authorization) -> Self {
         Self {
             dst,
             protocol: server.protocol.clone(),
-            authz_labels: authz.labels.clone(),
-            server_labels: server.labels.clone(),
+            labels: ServerAuthzLabels {
+                authz: authz.meta.clone(),
+                server: ServerLabel(server.meta.clone()),
+            },
         }
     }
 }

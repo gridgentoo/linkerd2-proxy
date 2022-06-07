@@ -111,8 +111,6 @@ mod tests {
                     }],
                     ..HttpRule::default()
                 }],
-                name: "example-wildcard".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 hosts: vec!["foo.example.com".parse().unwrap()],
@@ -123,8 +121,6 @@ mod tests {
                     }],
                     policy: Policy::Expected,
                 }],
-                name: "example-foo".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -149,8 +145,6 @@ mod tests {
                     ..HttpRule::default()
                 }],
                 hosts: vec![],
-                name: "foo-prefix".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 rules: vec![HttpRule {
@@ -161,8 +155,6 @@ mod tests {
                     policy: Policy::Expected,
                 }],
                 hosts: vec![],
-                name: "foo-bar".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -191,8 +183,6 @@ mod tests {
                     ..HttpRule::default()
                 }],
                 hosts: vec![],
-                name: "headers-2".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             HttpRoute {
                 rules: vec![HttpRule {
@@ -207,8 +197,6 @@ mod tests {
                     policy: Policy::Expected,
                 }],
                 hosts: vec![],
-                name: "headers-3".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
         ];
 
@@ -238,17 +226,11 @@ mod tests {
                     HttpRule::default(),
                 ],
                 hosts: vec![],
-                name: "nop-expected".into(),
-                kind: "httproute.gateway.networking.k8s.io".into(),
             },
             // Redundant route.
             HttpRoute {
                 rules: vec![HttpRule::default()],
                 hosts: vec![],
-                labels: Arc::new(Labels {
-                    name: "nop-unexpected".into(),
-                    kind: "httproute.gateway.networking.k8s.io".into(),
-                }),
             },
         ];
 
