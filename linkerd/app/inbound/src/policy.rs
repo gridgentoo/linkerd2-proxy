@@ -10,8 +10,8 @@ pub use self::authorize::{NewAuthorizeHttp, NewAuthorizeTcp};
 pub use self::config::Config;
 pub(crate) use self::store::Store;
 
-use linkerd_app_core::metrics::ServerAuthzLabels;
 pub use linkerd_app_core::metrics::ServerLabel;
+use linkerd_app_core::metrics::{RouteAuthzLabels, ServerAuthzLabels};
 use linkerd_app_core::{
     tls,
     transport::{ClientAddr, OrigDstAddr, Remote},
@@ -52,8 +52,12 @@ pub struct AllowPolicy {
 pub struct ServerPermit {
     pub dst: OrigDstAddr,
     pub protocol: Protocol,
-
     pub labels: ServerAuthzLabels,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RoutePermit {
+    pub labels: RouteAuthzLabels,
 }
 
 // === impl DefaultPolicy ===

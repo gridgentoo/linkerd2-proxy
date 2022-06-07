@@ -1,4 +1,4 @@
-use crate::policy::{AllowPolicy, ServerPermit};
+use crate::policy::{AllowPolicy, RoutePermit, ServerPermit};
 use linkerd_app_core::{
     metrics::{
         metrics, Counter, FmtMetrics, ServerAuthzLabels, ServerLabel, TargetAddr, TlsAccept,
@@ -63,7 +63,7 @@ struct AuthzKey {
 // === impl HttpAuthzMetrics ===
 
 impl HttpAuthzMetrics {
-    pub fn allow(&self, permit: &ServerPermit, tls: tls::ConditionalServerTls) {
+    pub fn allow(&self, permit: &RoutePermit, tls: tls::ConditionalServerTls) {
         self.0
             .allow
             .lock()

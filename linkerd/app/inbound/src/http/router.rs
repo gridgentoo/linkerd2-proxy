@@ -16,7 +16,7 @@ use tracing::{debug, debug_span};
 pub struct Http {
     addr: Remote<ServerAddr>,
     settings: http::client::Settings,
-    permit: policy::ServerPermit,
+    permit: policy::RoutePermit,
 }
 
 /// Builds `Logical` targets for each HTTP request.
@@ -24,7 +24,7 @@ pub struct Http {
 struct LogicalPerRequest {
     server: Remote<ServerAddr>,
     tls: tls::ConditionalServerTls,
-    permit: policy::ServerPermit,
+    permit: policy::RoutePermit,
     labels: tap::Labels,
 }
 
@@ -36,7 +36,7 @@ struct Logical {
     addr: Remote<ServerAddr>,
     http: http::Version,
     tls: tls::ConditionalServerTls,
-    permit: policy::ServerPermit,
+    permit: policy::RoutePermit,
     labels: tap::Labels,
 }
 
@@ -246,12 +246,12 @@ impl<C> Inbound<C> {
 
 // === impl LogicalPerRequest ===
 
-impl<T> From<(policy::ServerPermit, T)> for LogicalPerRequest
+impl<T> From<(policy::RoutePermit, T)> for LogicalPerRequest
 where
     T: Param<Remote<ServerAddr>>,
     T: Param<tls::ConditionalServerTls>,
 {
-    fn from((permit, t): (policy::ServerPermit, T)) -> Self {
+    fn from((permit, t): (policy::RoutePermit, T)) -> Self {
         let labels = vec![
             (
                 "srv_group".to_string(),
@@ -264,6 +264,18 @@ where
             (
                 "srv_name".to_string(),
                 permit.labels.server.0.name.to_string(),
+            ),
+            (
+                "route_group".to_string(),
+                permit.labels.route.group.to_string(),
+            ),
+            (
+                "route_kind".to_string(),
+                permit.labels.route.kind.to_string(),
+            ),
+            (
+                "route_name".to_string(),
+                permit.labels.route.name.to_string(),
             ),
             (
                 "authz_group".to_string(),
