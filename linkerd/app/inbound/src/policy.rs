@@ -22,7 +22,9 @@ use linkerd_app_core::{
 };
 use linkerd_cache::Cached;
 pub use linkerd_server_policy::{
-    authz::Suffix, Authentication, Authorization, HttpRoute, Meta, Protocol, ServerPolicy,
+    authz::Suffix,
+    http_route::filter::{InvalidRedirect, Redirection},
+    Authentication, Authorization, HttpRoute, Meta, Protocol, ServerPolicy,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -30,7 +32,7 @@ use tokio::sync::watch;
 
 #[derive(Clone, Debug, Error)]
 #[error("unauthorized connection on {}/{}", server.kind, server.name)]
-pub struct DeniedUnauthorized {
+pub struct ServerUnauthorized {
     server: Arc<Meta>,
 }
 
@@ -152,11 +154,11 @@ impl AllowPolicy {
 
     /// Checks whether the server has any authorizations at all. If it does not,
     /// a denial error is returned.
-    pub(crate) fn check_port_allowed(self) -> Result<Self, DeniedUnauthorized> {
+    pub(crate) fn check_port_allowed(self) -> Result<Self, ServerUnauthorized> {
         let server = self.server.borrow();
 
         if server.authorizations.is_empty() {
-            return Err(DeniedUnauthorized {
+            return Err(ServerUnauthorized {
                 server: server.meta.clone(),
             });
         }
@@ -171,7 +173,7 @@ impl AllowPolicy {
         &self,
         client_addr: Remote<ClientAddr>,
         tls: &tls::ConditionalServerTls,
-    ) -> Result<ServerPermit, DeniedUnauthorized> {
+    ) -> Result<ServerPermit, ServerUnauthorized> {
         let server = self.server.borrow();
         for authz in server.authorizations.iter() {
             if is_authorized(authz, client_addr, tls) {
@@ -179,7 +181,7 @@ impl AllowPolicy {
             }
         }
 
-        Err(DeniedUnauthorized {
+        Err(ServerUnauthorized {
             server: server.meta.clone(),
         })
     }

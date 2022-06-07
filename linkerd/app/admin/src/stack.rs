@@ -291,9 +291,29 @@ impl<T: Param<tls::ConditionalServerTls>> ExtractParam<errors::respond::EmitHead
 
 impl errors::HttpRescue<Error> for Rescue {
     fn rescue(&self, error: Error) -> Result<errors::SyntheticHttpResponse> {
-        // TODO handle route authorization errors
-        if let Some(cause) = errors::cause_ref::<inbound::policy::DeniedUnauthorized>(&*error) {
+        if let Some(cause) = errors::cause_ref::<inbound::policy::HttpRouteNotFound>(&*error) {
+            return Ok(errors::SyntheticHttpResponse::not_found(cause));
+        }
+
+        if let Some(cause) = errors::cause_ref::<inbound::policy::HttpRouteUnauthorized>(&*error) {
             return Ok(errors::SyntheticHttpResponse::permission_denied(cause));
+        }
+
+        if let Some(inbound::policy::HttpRouteInvalidRedirect(cause)) =
+            errors::cause_ref::<inbound::policy::HttpRouteInvalidRedirect>(&*error)
+        {
+            if matches!(cause, inbound::policy::InvalidRedirect::Loop) {
+                return Ok(errors::SyntheticHttpResponse::loop_detected(cause));
+            }
+            tracing::warn!(error, "Unexpected error");
+            return Ok(errors::SyntheticHttpResponse::unexpected_error());
+        }
+
+        if let Some(inbound::policy::HttpRouteRedirect(redir)) =
+            errors::cause_ref::<inbound::policy::HttpRouteRedirect>(&*error)
+        {
+            let inbound::policy::Redirection { status, location } = redir;
+            return Ok(errors::SyntheticHttpResponse::redirect(*status, location));
         }
 
         tracing::warn!(error, "Unexpected error");

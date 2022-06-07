@@ -1,4 +1,4 @@
-use super::super::{AllowPolicy, DeniedUnauthorized, ServerPermit};
+use super::super::{AllowPolicy, ServerPermit, ServerUnauthorized};
 use crate::metrics::authz::TcpAuthzMetrics;
 use futures::future;
 use linkerd_app_core::{
@@ -22,7 +22,7 @@ pub struct NewAuthorizeTcp<N> {
 #[derive(Clone, Debug)]
 pub enum AuthorizeTcp<S> {
     Authorized(Authorized<S>),
-    Unauthorized(Unauthorized),
+    Unauthorized(ServerUnauthorized),
 }
 
 #[derive(Clone, Debug)]
@@ -32,11 +32,6 @@ pub struct Authorized<S> {
     client: Remote<ClientAddr>,
     tls: tls::ConditionalServerTls,
     metrics: TcpAuthzMetrics,
-}
-
-#[derive(Clone, Debug)]
-pub struct Unauthorized {
-    deny: DeniedUnauthorized,
 }
 
 // === impl NewAuthorizeTcp ===
@@ -93,7 +88,7 @@ where
                     "Connection denied"
                 );
                 self.metrics.deny(&policy, tls);
-                AuthorizeTcp::Unauthorized(Unauthorized { deny })
+                AuthorizeTcp::Unauthorized(deny)
             }
         }
     }
@@ -122,9 +117,7 @@ where
             }
 
             // If connections are not authorized, fail it immediately.
-            Self::Unauthorized(Unauthorized { deny }) => {
-                task::Poll::Ready(Err(deny.clone().into()))
-            }
+            Self::Unauthorized(deny) => task::Poll::Ready(Err(deny.clone().into())),
         }
     }
 

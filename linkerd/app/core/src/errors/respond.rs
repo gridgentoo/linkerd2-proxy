@@ -1,5 +1,5 @@
 use crate::svc;
-use http::header::HeaderValue;
+use http::header::{HeaderName, HeaderValue};
 use linkerd_error::{Error, Result};
 use linkerd_error_respond as respond;
 pub use linkerd_proxy_http::{ClientHandle, HasH2Reason};
@@ -36,6 +36,7 @@ pub struct SyntheticHttpResponse {
     pub http_status: http::StatusCode,
     pub close_connection: bool,
     pub message: Cow<'static, str>,
+    pub location: Option<http::header::HeaderValue>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -95,6 +96,7 @@ impl SyntheticHttpResponse {
             http_status: http::StatusCode::INTERNAL_SERVER_ERROR,
             grpc_status: tonic::Code::Internal,
             message: Cow::Borrowed("unexpected error"),
+            location: None,
         }
     }
 
@@ -104,6 +106,7 @@ impl SyntheticHttpResponse {
             http_status: http::StatusCode::BAD_GATEWAY,
             grpc_status: tonic::Code::Unavailable,
             message: Cow::Owned(msg.to_string()),
+            location: None,
         }
     }
 
@@ -113,6 +116,7 @@ impl SyntheticHttpResponse {
             http_status: http::StatusCode::GATEWAY_TIMEOUT,
             grpc_status: tonic::Code::Unavailable,
             message: Cow::Owned(msg.to_string()),
+            location: None,
         }
     }
 
@@ -122,6 +126,7 @@ impl SyntheticHttpResponse {
             grpc_status: tonic::Code::Unauthenticated,
             close_connection: false,
             message: Cow::Owned(msg.to_string()),
+            location: None,
         }
     }
 
@@ -131,6 +136,7 @@ impl SyntheticHttpResponse {
             grpc_status: tonic::Code::PermissionDenied,
             close_connection: false,
             message: Cow::Owned(msg.to_string()),
+            location: None,
         }
     }
 
@@ -140,6 +146,7 @@ impl SyntheticHttpResponse {
             grpc_status: tonic::Code::Aborted,
             close_connection: true,
             message: Cow::Owned(msg.to_string()),
+            location: None,
         }
     }
 
@@ -149,6 +156,20 @@ impl SyntheticHttpResponse {
             grpc_status: tonic::Code::NotFound,
             close_connection: false,
             message: Cow::Owned(msg.to_string()),
+            location: None,
+        }
+    }
+
+    pub fn redirect(http_status: http::StatusCode, location: &http::Uri) -> Self {
+        Self {
+            http_status,
+            grpc_status: tonic::Code::NotFound,
+            close_connection: false,
+            message: Cow::Borrowed("redirected"),
+            location: Some(
+                http::header::HeaderValue::from_str(&*location.to_string())
+                    .expect("location must be a valid header value"),
+            ),
         }
     }
 
@@ -222,6 +243,10 @@ impl SyntheticHttpResponse {
                 // TODO only set when meshed.
                 rsp = rsp.header(L5D_PROXY_CONNECTION, "close");
             }
+        }
+
+        if let Some(loc) = &self.location {
+            rsp = rsp.header(http::header::LOCATION, loc);
         }
 
         rsp.body(B::default())
