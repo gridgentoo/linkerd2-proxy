@@ -255,27 +255,27 @@ where
         let labels = vec![
             (
                 "srv_group".to_string(),
-                permit.labels.server.0.group.to_string(),
+                permit.labels.route.server.0.group.to_string(),
             ),
             (
                 "srv_kind".to_string(),
-                permit.labels.server.0.kind.to_string(),
+                permit.labels.route.server.0.kind.to_string(),
             ),
             (
                 "srv_name".to_string(),
-                permit.labels.server.0.name.to_string(),
+                permit.labels.route.server.0.name.to_string(),
             ),
             (
                 "route_group".to_string(),
-                permit.labels.route.group.to_string(),
+                permit.labels.route.route.group.to_string(),
             ),
             (
                 "route_kind".to_string(),
-                permit.labels.route.kind.to_string(),
+                permit.labels.route.route.kind.to_string(),
             ),
             (
                 "route_name".to_string(),
-                permit.labels.route.name.to_string(),
+                permit.labels.route.route.name.to_string(),
             ),
             (
                 "authz_group".to_string(),
@@ -351,9 +351,9 @@ impl Param<profiles::http::Route> for Route {
     }
 }
 
-impl Param<metrics::RouteLabels> for Route {
-    fn param(&self) -> metrics::RouteLabels {
-        metrics::RouteLabels::inbound(self.profile.addr.clone(), &self.route)
+impl Param<metrics::ServiceProfileRouteLabels> for Route {
+    fn param(&self) -> metrics::ServiceProfileRouteLabels {
+        metrics::ServiceProfileRouteLabels::inbound(self.profile.addr.clone(), &self.route)
     }
 }
 

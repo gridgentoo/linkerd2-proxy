@@ -6,7 +6,7 @@ use crate::{
 };
 use futures::{future, TryFutureExt};
 use linkerd_app_core::{
-    metrics::RouteAuthzLabels,
+    metrics::{RouteAuthzLabels, RouteLabels},
     svc::{self, ServiceExt},
     tls,
     transport::{ClientAddr, Remote},
@@ -121,7 +121,6 @@ where
     }
 
     fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
-        let server = self.policy.server_label();
         let routes = self.policy.http_routes();
         let (rt_match, route) =
             match http_route::find(routes.as_deref().into_iter().flatten(), &req) {
@@ -132,6 +131,12 @@ where
                 }
             };
 
+        let dst = self.policy.dst_addr();
+        let labels = RouteLabels {
+            route: route.meta.clone(),
+            server: self.policy.server_label(),
+        };
+
         let authz = match route
             .authorizations
             .iter()
@@ -140,17 +145,17 @@ where
             Some(authz) => authz,
             None => {
                 tracing::info!(
-                    server.group = %server.0.group,
-                    server.kind = %server.0.kind,
-                    server.name = %server.0.name,
-                    route.group = %route.meta.group,
-                    route.kind = %route.meta.kind,
-                    route.name = %route.meta.name,
-                    tls = ?self.tls,
-                    client = %self.client_addr,
+                    server.group = %labels.server.0.group,
+                    server.kind = %labels.server.0.kind,
+                    server.name = %labels.server.0.name,
+                    route.group = %labels.route.group,
+                    route.kind = %labels.route.kind,
+                    route.name = %labels.route.name,
+                    client.tls = ?self.tls,
+                    client.ip = %self.client_addr.ip(),
                     "Request denied",
                 );
-                // self.metrics.deny(&self.policy, self.tls.clone());
+                self.metrics.deny(labels, dst, self.tls.clone());
                 return future::Either::Right(future::err(HttpRouteUnauthorized(()).into()));
             }
         };
@@ -182,30 +187,29 @@ where
             }
         }
 
-        // TODO permit, metrics, etc..
-        let labels = RouteAuthzLabels {
-            route: route.meta.clone(),
-            authz: authz.meta.clone(),
-            server,
+        let permit = {
+            let labels = RouteAuthzLabels {
+                route: labels,
+                authz: authz.meta.clone(),
+            };
+            tracing::debug!(
+                server.group = %labels.route.server.0.group,
+                server.kind = %labels.route.server.0.kind,
+                server.name = %labels.route.server.0.name,
+                route.group = %labels.route.route.group,
+                route.kind = %labels.route.route.kind,
+                route.name = %labels.route.route.name,
+                authz.group = %labels.authz.group,
+                authz.kind = %labels.authz.kind,
+                authz.name = %labels.authz.name,
+                client.tls = ?self.tls,
+                client.ip = %self.client_addr.0.ip(),
+                "Request authorized",
+            );
+            RoutePermit { dst, labels }
         };
-        tracing::debug!(
-            server.group = %labels.server.0.group,
-            server.kind = %labels.server.0.kind,
-            server.name = %labels.server.0.name,
-            route.group = %labels.route.group,
-            route.kind = %labels.route.kind,
-            route.name = %labels.route.name,
-            authz.group = %labels.authz.group,
-            authz.kind = %labels.authz.kind,
-            authz.name = %labels.authz.name,
-            tls = ?self.tls,
-            client.ip = %self.client_addr.0.ip(),
-            "Request authorized",
-        );
-        let dst = self.policy.dst_addr();
-        let permit = RoutePermit { dst, labels };
-        self.metrics.allow(&permit, self.tls.clone());
 
+        self.metrics.allow(&permit, self.tls.clone());
         let svc = self.inner.new_service((permit, self.target.clone()));
         future::Either::Left(svc.oneshot(req).err_into::<Error>())
     }

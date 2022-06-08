@@ -1,10 +1,11 @@
 use crate::policy::{AllowPolicy, RoutePermit, ServerPermit};
 use linkerd_app_core::{
     metrics::{
-        metrics, Counter, FmtMetrics, RouteAuthzLabels, ServerAuthzLabels, ServerLabel, TargetAddr,
-        TlsAccept,
+        metrics, Counter, FmtMetrics, RouteAuthzLabels, RouteLabels, ServerAuthzLabels,
+        ServerLabel, TargetAddr, TlsAccept,
     },
     tls,
+    transport::OrigDstAddr,
 };
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
@@ -37,7 +38,7 @@ pub(crate) struct TcpAuthzMetrics(Arc<TcpInner>);
 #[derive(Debug, Default)]
 struct HttpInner {
     allow: Mutex<HashMap<RouteAuthzKey, Counter>>,
-    deny: Mutex<HashMap<SrvKey, Counter>>,
+    deny: Mutex<HashMap<RouteKey, Counter>>,
 }
 
 #[derive(Debug, Default)]
@@ -62,10 +63,17 @@ struct ServerAuthzKey {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
+struct RouteKey {
+    target: TargetAddr,
+    tls: tls::ConditionalServerTls,
+    labels: RouteLabels,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
 struct RouteAuthzKey {
     target: TargetAddr,
-    authz: RouteAuthzLabels,
     tls: tls::ConditionalServerTls,
+    labels: RouteAuthzLabels,
 }
 
 // === impl HttpAuthzMetrics ===
@@ -80,11 +88,11 @@ impl HttpAuthzMetrics {
             .incr();
     }
 
-    pub fn deny(&self, policy: &AllowPolicy, tls: tls::ConditionalServerTls) {
+    pub fn deny(&self, labels: RouteLabels, dst: OrigDstAddr, tls: tls::ConditionalServerTls) {
         self.0
             .deny
             .lock()
-            .entry(SrvKey::new(policy, tls))
+            .entry(RouteKey::new(labels, dst, tls))
             .or_default()
             .incr();
     }
@@ -99,7 +107,7 @@ impl FmtMetrics for HttpAuthzMetrics {
                 f,
                 allow
                     .iter()
-                    .map(|(k, c)| ((k.target, (&k.authz, TlsAccept(&k.tls))), c)),
+                    .map(|(k, c)| ((k.target, (&k.labels, TlsAccept(&k.tls))), c)),
                 |c| c,
             )?;
         }
@@ -208,6 +216,18 @@ impl SrvKey {
     }
 }
 
+// === impl RouteKey ===
+
+impl RouteKey {
+    fn new(labels: RouteLabels, dst: OrigDstAddr, tls: tls::ConditionalServerTls) -> Self {
+        Self {
+            tls,
+            labels,
+            target: TargetAddr(dst.into()),
+        }
+    }
+}
+
 // === impl RouteAuthzKey ===
 
 impl RouteAuthzKey {
@@ -215,7 +235,7 @@ impl RouteAuthzKey {
         Self {
             tls,
             target: TargetAddr(permit.dst.into()),
-            authz: permit.labels.clone(),
+            labels: permit.labels.clone(),
         }
     }
 }

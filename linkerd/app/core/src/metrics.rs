@@ -28,9 +28,9 @@ pub type ControlHttp = http_metrics::Requests<ControlLabels, Class>;
 
 pub type HttpEndpoint = http_metrics::Requests<EndpointLabels, Class>;
 
-pub type HttpRoute = http_metrics::Requests<RouteLabels, Class>;
+pub type HttpRoute = http_metrics::Requests<ServiceProfileRouteLabels, Class>;
 
-pub type HttpRouteRetry = http_metrics::Retries<RouteLabels>;
+pub type HttpRouteRetry = http_metrics::Retries<ServiceProfileRouteLabels>;
 
 pub type Stack = stack_metrics::Registry<StackLabels>;
 
@@ -84,10 +84,16 @@ pub struct ServerAuthzLabels {
 
 /// Labels referencing an inbound `ServerAuthorization.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct RouteAuthzLabels {
+pub struct RouteLabels {
     pub route: Arc<policy::Meta>,
-    pub authz: Arc<policy::Meta>,
     pub server: ServerLabel,
+}
+
+/// Labels referencing an inbound `ServerAuthorization.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct RouteAuthzLabels {
+    pub authz: Arc<policy::Meta>,
+    pub route: RouteLabels,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -106,7 +112,7 @@ pub struct StackLabels {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RouteLabels {
+pub struct ServiceProfileRouteLabels {
     direction: Direction,
     addr: profiles::LogicalAddr,
     labels: Option<String>,
@@ -158,19 +164,19 @@ impl Metrics {
         };
 
         let (http_route, route_report) = {
-            let m = metrics::Requests::<RouteLabels, Class>::default();
+            let m = metrics::Requests::<ServiceProfileRouteLabels, Class>::default();
             let r = m.clone().into_report(retain_idle).with_prefix("route");
             (m, r)
         };
 
         let (http_route_retry, retry_report) = {
-            let m = metrics::Retries::<RouteLabels>::default();
+            let m = metrics::Retries::<ServiceProfileRouteLabels>::default();
             let r = m.clone().into_report(retain_idle).with_prefix("route");
             (m, r)
         };
 
         let (http_route_actual, actual_report) = {
-            let m = metrics::Requests::<RouteLabels, Class>::default();
+            let m = metrics::Requests::<ServiceProfileRouteLabels, Class>::default();
             let r = m
                 .clone()
                 .into_report(retain_idle)
@@ -234,9 +240,9 @@ impl FmtLabels for ControlLabels {
     }
 }
 
-// === impl RouteLabels ===
+// === impl ServiceProfileRouteLabels ===
 
-impl RouteLabels {
+impl ServiceProfileRouteLabels {
     pub fn inbound(addr: profiles::LogicalAddr, route: &profiles::http::Route) -> Self {
         let labels = prefix_labels("rt", route.labels().iter());
         Self {
@@ -256,7 +262,7 @@ impl RouteLabels {
     }
 }
 
-impl FmtLabels for RouteLabels {
+impl FmtLabels for ServiceProfileRouteLabels {
     fn fmt_labels(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.direction.fmt_labels(f)?;
         write!(f, ",dst=\"{}\"", self.addr)?;
@@ -330,14 +336,24 @@ impl FmtLabels for ServerAuthzLabels {
     }
 }
 
-impl FmtLabels for RouteAuthzLabels {
+impl FmtLabels for RouteLabels {
     fn fmt_labels(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.server.fmt_labels(f)?;
         write!(
             f,
-            ",authz_group=\"{}\",authz_kind=\"{}\",authz_name=\"{}\",route_group=\"{}\",route_kind=\"{}\",route_name=\"{}\"",
-            self.authz.group, self.authz.kind, self.authz.name,
+            ",route_group=\"{}\",route_kind=\"{}\",route_name=\"{}\"",
             self.route.group, self.route.kind, self.route.name,
+        )
+    }
+}
+
+impl FmtLabels for RouteAuthzLabels {
+    fn fmt_labels(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.route.fmt_labels(f)?;
+        write!(
+            f,
+            ",authz_group=\"{}\",authz_kind=\"{}\",authz_name=\"{}\"",
+            self.authz.group, self.authz.kind, self.authz.name,
         )
     }
 }

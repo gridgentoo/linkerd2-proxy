@@ -190,9 +190,9 @@ impl Param<profiles::http::Route> for Route {
     }
 }
 
-impl Param<metrics::RouteLabels> for Route {
-    fn param(&self) -> metrics::RouteLabels {
-        metrics::RouteLabels::outbound(self.logical.logical_addr.clone(), &self.route)
+impl Param<metrics::ServiceProfileRouteLabels> for Route {
+    fn param(&self) -> metrics::ServiceProfileRouteLabels {
+        metrics::ServiceProfileRouteLabels::outbound(self.logical.logical_addr.clone(), &self.route)
     }
 }
 

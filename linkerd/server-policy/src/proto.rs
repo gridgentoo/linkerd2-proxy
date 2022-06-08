@@ -261,7 +261,7 @@ impl Meta {
             },
             (name, None) => Meta {
                 group,
-                kind: Cow::Borrowed(default_kind),
+                kind: default_kind.into(),
                 name: name.into(),
             },
         };
