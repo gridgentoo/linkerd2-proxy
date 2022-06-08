@@ -23,11 +23,13 @@ use std::{sync::Arc, task};
 
 /// A middleware that enforces policy on each HTTP request.
 ///
-/// This enforcement is done lazily on each request so that policy updates are honored as the
-/// connection progresses.
+/// This enforcement is done lazily on each request so that policy updates are
+/// honored as the connection progresses.
 ///
-/// The inner service is created for each request, so it's expected that this is combined with
-/// caching.
+/// The inner service is created for each request, so it's expected that this is
+/// combined with caching.
+///
+/// TODO this needs a better name to reflect its not solely about authorization.
 #[derive(Clone, Debug)]
 pub struct NewAuthorizeHttp<N> {
     metrics: HttpAuthzMetrics,
@@ -121,6 +123,9 @@ where
     }
 
     fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
+        let dst = self.policy.dst_addr();
+        let labels = self.policy.server_label();
+
         let routes = self.policy.http_routes();
         let (rt_match, route) =
             match http_route::find(routes.as_deref().into_iter().flatten(), &req) {
@@ -131,10 +136,9 @@ where
                 }
             };
 
-        let dst = self.policy.dst_addr();
         let labels = RouteLabels {
             route: route.meta.clone(),
-            server: self.policy.server_label(),
+            server: labels,
         };
 
         let authz = match route
@@ -160,33 +164,6 @@ where
             }
         };
 
-        for filter in &route.filters {
-            match filter {
-                RouteFilter::RequestHeaders(rh) => {
-                    rh.apply(req.headers_mut());
-                }
-                RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
-                    Ok(Some(redirection)) => {
-                        return future::Either::Right(future::err(
-                            HttpRouteRedirect(redirection).into(),
-                        ))
-                    }
-                    Ok(None) => {
-                        tracing::debug!("Ignoring irrelvant redirect");
-                    }
-                    Err(invalid) => {
-                        return future::Either::Right(future::err(
-                            HttpRouteInvalidRedirect(invalid).into(),
-                        ))
-                    }
-                },
-                RouteFilter::Unknown => {
-                    let meta = route.meta.clone();
-                    return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));
-                }
-            }
-        }
-
         let permit = {
             let labels = RouteAuthzLabels {
                 route: labels,
@@ -203,13 +180,46 @@ where
                 authz.kind = %labels.authz.kind,
                 authz.name = %labels.authz.name,
                 client.tls = ?self.tls,
-                client.ip = %self.client_addr.0.ip(),
+                client.ip = %self.client_addr.ip(),
                 "Request authorized",
             );
             RoutePermit { dst, labels }
         };
 
         self.metrics.allow(&permit, self.tls.clone());
+
+        // TODO should we have metrics about filter usage?
+        for filter in &route.filters {
+            match filter {
+                RouteFilter::RequestHeaders(rh) => {
+                    rh.apply(req.headers_mut());
+                }
+
+                RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
+                    Ok(Some(redirection)) => {
+                        return future::Either::Right(future::err(
+                            HttpRouteRedirect(redirection).into(),
+                        ))
+                    }
+
+                    Err(invalid) => {
+                        return future::Either::Right(future::err(
+                            HttpRouteInvalidRedirect(invalid).into(),
+                        ))
+                    }
+
+                    Ok(None) => {
+                        tracing::debug!("Ignoring irrelvant redirect");
+                    }
+                },
+
+                RouteFilter::Unknown => {
+                    let meta = route.meta.clone();
+                    return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));
+                }
+            }
+        }
+
         let svc = self.inner.new_service((permit, self.target.clone()));
         future::Either::Left(svc.oneshot(req).err_into::<Error>())
     }
