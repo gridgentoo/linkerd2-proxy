@@ -20,6 +20,7 @@
 
 * Read probes and always include (HTTP) probe ports in the proxy's inbound port
   list. Probe ports should always be discovered and cached.
+  <https://github.com/linkerd/linkerd2/issues/8638>
 
 ## Policy controller
 
@@ -43,8 +44,8 @@
   the admission controller was bypassed)?
   * Probably need to reflect in `HTTPRoute` status
   * Probably need to inject inject routes that fail requests.
-* TODO Synthesize routes with unauthenticated policies for probes when existing
-  routes do not exist.
+* TODO Synthesize servers/routes/policies for probes when existing
+  servers/routes/policies do not exist.
 
 ## Admission controller
 
@@ -62,4 +63,6 @@
 
 * How do Gateway API types get installed?
   * Optional?
-    * Install takes a flag that indicates whether the API types are installed.
+    * Chart takes a flag that indicates whether the API types are installed,
+      enables route watches in policy controller.
+    * CLI detects CRD presence during install/upgrade and sets flag accordingly.
