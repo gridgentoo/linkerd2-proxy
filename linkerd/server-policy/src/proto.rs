@@ -310,7 +310,7 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, RouteMatchError>>()?;
 
         let policy = {
-            use api::http_route::rule::filter;
+            use api::http_route::filter;
 
             let filters = proto
                 .filters

@@ -36,10 +36,10 @@ pub enum RouteMatchError {
     QueryParam(#[from] QueryParamMatchError),
 }
 
-impl TryFrom<api::RouteMatch> for MatchRequest {
+impl TryFrom<api::HttpRouteMatch> for MatchRequest {
     type Error = RouteMatchError;
 
-    fn try_from(rm: api::RouteMatch) -> Result<Self, Self::Error> {
+    fn try_from(rm: api::HttpRouteMatch) -> Result<Self, Self::Error> {
         let path = match rm.path {
             None => None,
             Some(pm) => Some(pm.try_into()?),
@@ -258,10 +258,10 @@ pub enum ErrorResponderError {
     InvalidStatusNonU16(u32),
 }
 
-impl TryFrom<api::ErrorResponder> for RespondWithError {
+impl TryFrom<api::HttpErrorResponder> for RespondWithError {
     type Error = ErrorResponderError;
 
-    fn try_from(proto: api::ErrorResponder) -> Result<Self, Self::Error> {
+    fn try_from(proto: api::HttpErrorResponder) -> Result<Self, Self::Error> {
         if proto.status > u16::MAX as u32 {
             return Err(ErrorResponderError::InvalidStatusNonU16(proto.status));
         }
