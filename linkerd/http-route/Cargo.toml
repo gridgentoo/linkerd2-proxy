@@ -9,6 +9,7 @@ publish = false
 proto = ["linkerd2-proxy-api"]
 
 [dependencies]
+bytes = "1"
 futures = { version = "0.3", default-features = false }
 http = "0.2"
 linkerd2-proxy-api = { version = "0.5", features = ["http-route"], optional = true }

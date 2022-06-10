@@ -1,7 +1,9 @@
+mod error_respond;
 mod modify_request_header;
 mod redirect;
 
 pub use self::{
+    error_respond::RespondWithError,
     modify_request_header::ModifyRequestHeader,
     redirect::{InvalidRedirect, RedirectRequest, Redirection},
 };

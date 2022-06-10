@@ -3,7 +3,10 @@ use crate::{
     r#match::{MatchHeader, MatchPath, MatchQueryParam, MatchRequest},
     MatchHost,
 };
-use linkerd2_proxy_api::{http_route as api, http_types};
+use linkerd2_proxy_api::{
+    http_route::{self as api, Responder},
+    http_types,
+};
 
 // === impl MatchHost ===
 
@@ -246,3 +249,60 @@ impl TryFrom<api::RequestRedirect> for RedirectRequest {
         })
     }
 }
+
+/*
+impl TryFrom<api::ErrorRespond> for Responder {
+    type Error = RequestRedirectError;
+
+    fn try_from(rr: api::RequestRedirect) -> Result<Self, Self::Error> {
+        let scheme = match rr.scheme {
+            None => None,
+            Some(s) => Some(s.try_into()?),
+        };
+
+        let host = if rr.host.is_empty() {
+            None
+        } else {
+            // TODO ensure hostname is valid.
+            Some(rr.host)
+        };
+
+        let path = rr.path.and_then(|p| p.replace).map(|p| match p {
+            api::path_modifier::Replace::Full(path) => {
+                // TODO ensure path is valid.
+                ModifyPath::ReplaceFullPath(path)
+            }
+            api::path_modifier::Replace::Prefix(prefix) => {
+                // TODO ensure prefix is valid.
+                ModifyPath::ReplacePrefixMatch(prefix)
+            }
+        });
+
+        let port = {
+            if rr.port > (u16::MAX as u32) {
+                return Err(RequestRedirectError::InvalidPort(rr.port));
+            }
+            if rr.port == 0 {
+                None
+            } else {
+                Some(rr.port as u16)
+            }
+        };
+
+        let status = match rr.status {
+            0 => None,
+            s if 100 >= s || s < 600 => Some(http::StatusCode::from_u16(s as u16)?),
+            s => return Err(RequestRedirectError::InvalidStatusNonU16(s)),
+        };
+
+        Ok(RedirectRequest {
+            scheme,
+            host,
+            path,
+            port,
+            status,
+        })
+    }
+}
+
+*/

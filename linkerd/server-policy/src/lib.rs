@@ -6,10 +6,7 @@ pub mod authz;
 mod proto;
 
 pub use self::authz::{Authentication, Authorization};
-pub use linkerd_http_route::{
-    self as http_route,
-    filter::{ModifyRequestHeader, RedirectRequest},
-};
+pub use linkerd_http_route as http_route;
 use std::{borrow::Cow, hash::Hash, sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,10 +24,7 @@ pub enum Protocol {
     },
     Http1(HttpConfig),
     Http2(HttpConfig),
-    Grpc {
-        disable_info_headers: bool,
-        // TODO gRPC routes https://gateway-api.sigs.k8s.io/geps/gep-1016/
-    },
+    Grpc(HttpConfig),
     Opaque,
     Tls,
 }
@@ -44,12 +38,11 @@ pub struct Meta {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
-    pub disable_info_headers: bool,
     pub routes: Arc<[HttpRoute]>,
 }
 
-pub type HttpRoute = linkerd_http_route::HttpRoute<RoutePolicy>;
-pub type HttpRule = linkerd_http_route::HttpRule<RoutePolicy>;
+pub type HttpRoute = http_route::HttpRoute<RoutePolicy>;
+pub type HttpRule = http_route::HttpRule<RoutePolicy>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RoutePolicy {
@@ -60,9 +53,11 @@ pub struct RoutePolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RouteFilter {
-    RequestHeaders(ModifyRequestHeader),
+    RequestHeaders(http_route::filter::ModifyRequestHeader),
 
-    Redirect(RedirectRequest),
+    Redirect(http_route::filter::RedirectRequest),
+
+    Error(http_route::filter::RespondWithError),
 
     /// Indicates that the filter kind is unknown to the proxy (e.g., because
     /// the controller is on a new version of the protobuf).
@@ -77,7 +72,6 @@ pub enum RouteFilter {
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
-            disable_info_headers: false,
             routes: vec![].into(),
         }
     }

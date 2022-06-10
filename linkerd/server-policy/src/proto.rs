@@ -87,10 +87,9 @@ impl TryFrom<api::Server> for ServerPolicy {
         {
             api::proxy_protocol::Kind::Detect(api::proxy_protocol::Detect {
                 timeout,
-                http_disable_informational_headers,
                 http_routes,
             }) => {
-                let http = HttpConfig::try_new(http_disable_informational_headers, http_routes)?;
+                let http = HttpConfig::try_new(http_routes)?;
                 Protocol::Detect {
                     http,
                     timeout: timeout
@@ -100,27 +99,20 @@ impl TryFrom<api::Server> for ServerPolicy {
                 }
             }
 
-            api::proxy_protocol::Kind::Http1(api::proxy_protocol::Http1 {
-                disable_informational_headers,
-                routes,
-            }) => {
-                let http = HttpConfig::try_new(disable_informational_headers, routes)?;
+            api::proxy_protocol::Kind::Http1(api::proxy_protocol::Http1 { routes }) => {
+                let http = HttpConfig::try_new(routes)?;
                 Protocol::Http1(http)
             }
 
-            api::proxy_protocol::Kind::Http2(api::proxy_protocol::Http2 {
-                disable_informational_headers,
-                routes,
-            }) => {
-                let http = HttpConfig::try_new(disable_informational_headers, routes)?;
+            api::proxy_protocol::Kind::Http2(api::proxy_protocol::Http2 { routes }) => {
+                let http = HttpConfig::try_new(routes)?;
                 Protocol::Http2(http)
             }
 
-            api::proxy_protocol::Kind::Grpc(api::proxy_protocol::Grpc {
-                disable_informational_headers,
-            }) => Protocol::Grpc {
-                disable_info_headers: disable_informational_headers,
-            },
+            api::proxy_protocol::Kind::Grpc(api::proxy_protocol::Grpc { routes }) => {
+                let http = HttpConfig::try_new(routes)?;
+                Protocol::Grpc(http)
+            }
 
             api::proxy_protocol::Kind::Tls(_) => Protocol::Tls,
             api::proxy_protocol::Kind::Opaque(_) => Protocol::Opaque,
@@ -271,18 +263,12 @@ impl Meta {
 }
 
 impl HttpConfig {
-    fn try_new(
-        disable_info_headers: bool,
-        routes: Vec<api::HttpRoute>,
-    ) -> Result<Self, InvalidHttpRoute> {
+    fn try_new(routes: Vec<api::HttpRoute>) -> Result<Self, InvalidHttpRoute> {
         let routes = routes
             .into_iter()
             .map(Self::try_route)
             .collect::<Result<Arc<[HttpRoute]>, InvalidHttpRoute>>()?;
-        Ok(HttpConfig {
-            disable_info_headers,
-            routes,
-        })
+        Ok(HttpConfig { routes })
     }
 
     fn try_route(proto: api::HttpRoute) -> Result<HttpRoute, InvalidHttpRoute> {
@@ -329,9 +315,8 @@ impl HttpConfig {
                     Some(filter::Kind::RequestHeaderModifier(rhm)) => {
                         Ok(RouteFilter::RequestHeaders(rhm.try_into()?))
                     }
-                    Some(filter::Kind::RequestRedirect(rr)) => {
-                        Ok(RouteFilter::Redirect(rr.try_into()?))
-                    }
+                    Some(filter::Kind::Redirect(rr)) => Ok(RouteFilter::Redirect(rr.try_into()?)),
+                    Some(filter::Kind::Error(rsp)) => Ok(RouteFilter::Error(rsp.try_into()?)),
                     None => Ok(RouteFilter::Unknown),
                 })
                 .collect::<Result<Vec<_>, InvalidHttpRoute>>()?;

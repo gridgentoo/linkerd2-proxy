@@ -1,6 +1,11 @@
 use super::ModifyPath;
 use crate::HttpRouteMatch;
-use http::uri::{Authority, InvalidUri, Scheme, Uri};
+use http::{
+    header::{HeaderName, HeaderValue},
+    uri::{Authority, InvalidUri, Scheme, Uri},
+    StatusCode,
+};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct RedirectRequest {
@@ -8,7 +13,14 @@ pub struct RedirectRequest {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub path: Option<ModifyPath>,
-    pub status: Option<http::StatusCode>,
+    pub status: Option<StatusCode>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Respond {
+    pub status: StatusCode,
+    pub headers: Arc<[(HeaderName, HeaderValue)]>,
+    pub body: bytes::Bytes,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -47,30 +59,31 @@ impl RedirectRequest {
                 .or_else(|| orig_uri.scheme().cloned())
                 .unwrap_or(Scheme::HTTP);
 
-            let authority = {
-                let host = self
-                    .host
-                    .clone()
-                    .or_else(|| orig_uri.host().map(|s| s.to_owned()))
-                    .ok_or(InvalidRedirect::MissingAuthority)?;
-                let port = self.port.or_else(|| orig_uri.port_u16());
-                let hp = match port {
-                    Some(p) => format!("{}:{}", host, p),
-                    None => host,
-                };
-                hp.parse::<Authority>()?
+            let authority: Authority = match (self.host.as_deref(), self.port) {
+                // If a host is configured, use it and whatever port is configured.
+                (Some(h), p) => p
+                    .map(|p| format!("{}:{}", h, p).parse())
+                    .unwrap_or_else(|| h.parse())?,
+                // If a host is NOT configured, use the request's original host and either an
+                // overridden port or the original port.
+                (None, p) => {
+                    let h = orig_uri.host().ok_or(InvalidRedirect::MissingAuthority)?;
+                    p.or_else(|| orig_uri.port_u16())
+                        .map(|p| format!("{}:{}", h, p).parse())
+                        .unwrap_or_else(|| h.parse())?
+                }
             };
 
             let path = {
                 use crate::PathMatch;
 
-                let path = orig_uri.path();
+                let orig_path = orig_uri.path();
                 match &self.path {
-                    None => path.to_string(),
+                    None => orig_path.to_string(),
                     Some(ModifyPath::ReplaceFullPath(p)) => p.clone(),
                     Some(ModifyPath::ReplacePrefixMatch(new_pfx)) => match rm.request.path() {
-                        PathMatch::Prefix(pfx_len) if *pfx_len <= path.len() => {
-                            let (_, rest) = path.split_at(*pfx_len);
+                        PathMatch::Prefix(pfx_len) if *pfx_len <= orig_path.len() => {
+                            let (_, rest) = orig_path.split_at(*pfx_len);
                             format!("{}{}", new_pfx, rest)
                         }
                         _ => return Err(InvalidRedirect::InvalidReplacePrefix),
