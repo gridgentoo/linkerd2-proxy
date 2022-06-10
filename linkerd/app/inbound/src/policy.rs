@@ -1,17 +1,21 @@
 mod api;
-mod authorize;
 mod config;
 pub mod defaults;
+mod http;
 mod store;
+mod tcp;
 #[cfg(test)]
 mod tests;
 
-pub use self::authorize::{
-    HttpRouteInvalidRedirect, HttpRouteNotFound, HttpRouteRedirect, HttpRouteUnauthorized,
-    HttpRouteUnknownFilter, NewAuthorizeHttp, NewAuthorizeTcp,
-};
-pub use self::config::Config;
 pub(crate) use self::store::Store;
+pub use self::{
+    config::Config,
+    http::{
+        HttpRouteInvalidRedirect, HttpRouteNotFound, HttpRouteRedirect, HttpRouteUnauthorized,
+        HttpRouteUnknownFilter, NewHttpPolicy,
+    },
+    tcp::NewTcpPolicy,
+};
 
 pub use linkerd_app_core::metrics::ServerLabel;
 use linkerd_app_core::metrics::{RouteAuthzLabels, ServerAuthzLabels};

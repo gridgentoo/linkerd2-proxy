@@ -31,7 +31,7 @@ use std::{sync::Arc, task};
 ///
 /// TODO this needs a better name to reflect its not solely about authorization.
 #[derive(Clone, Debug)]
-pub struct NewAuthorizeHttp<N> {
+pub struct NewHttpPolicy<N> {
     metrics: HttpAuthzMetrics,
     inner: N,
 }
@@ -66,9 +66,9 @@ pub struct HttpRouteUnknownFilter(Arc<RouteMeta>);
 #[error("unauthorized request on route")]
 pub struct HttpRouteUnauthorized(());
 
-// === impl NewAuthorizeHttp ===
+// === impl NewHttpPolicy ===
 
-impl<N> NewAuthorizeHttp<N> {
+impl<N> NewHttpPolicy<N> {
     pub fn layer(metrics: HttpAuthzMetrics) -> impl svc::layer::Layer<N, Service = Self> + Clone {
         svc::layer::mk(move |inner| Self {
             metrics: metrics.clone(),
@@ -77,7 +77,7 @@ impl<N> NewAuthorizeHttp<N> {
     }
 }
 
-impl<T, N> svc::NewService<T> for NewAuthorizeHttp<N>
+impl<T, N> svc::NewService<T> for NewHttpPolicy<N>
 where
     T: svc::Param<AllowPolicy>
         + svc::Param<Remote<ClientAddr>>
@@ -144,7 +144,7 @@ where
         let authz = match route
             .authorizations
             .iter()
-            .find(|a| super::super::is_authorized(a, self.client_addr, &self.tls))
+            .find(|a| super::is_authorized(a, self.client_addr, &self.tls))
         {
             Some(authz) => authz,
             None => {

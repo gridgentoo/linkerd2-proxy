@@ -1,4 +1,4 @@
-use super::super::{AllowPolicy, ServerPermit, ServerUnauthorized};
+use super::{AllowPolicy, ServerPermit, ServerUnauthorized};
 use crate::metrics::authz::TcpAuthzMetrics;
 use futures::future;
 use linkerd_app_core::{
@@ -14,7 +14,7 @@ use std::{future::Future, pin::Pin, task};
 ///
 /// Metrics are reported to the `TcpAuthzMetrics` struct.
 #[derive(Clone, Debug)]
-pub struct NewAuthorizeTcp<N> {
+pub struct NewTcpPolicy<N> {
     inner: N,
     metrics: TcpAuthzMetrics,
 }
@@ -34,9 +34,9 @@ pub struct Authorized<S> {
     metrics: TcpAuthzMetrics,
 }
 
-// === impl NewAuthorizeTcp ===
+// === impl NewTcpPolicy ===
 
-impl<N> NewAuthorizeTcp<N> {
+impl<N> NewTcpPolicy<N> {
     pub(crate) fn layer(
         metrics: TcpAuthzMetrics,
     ) -> impl svc::layer::Layer<N, Service = Self> + Clone {
@@ -47,7 +47,7 @@ impl<N> NewAuthorizeTcp<N> {
     }
 }
 
-impl<T, N> svc::NewService<T> for NewAuthorizeTcp<N>
+impl<T, N> svc::NewService<T> for NewTcpPolicy<N>
 where
     T: svc::Param<AllowPolicy>
         + svc::Param<Remote<ClientAddr>>
