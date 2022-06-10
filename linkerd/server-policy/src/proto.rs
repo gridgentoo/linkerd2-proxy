@@ -1,4 +1,5 @@
 use crate::*;
+use http_route::proto::ErrorResponderError;
 use ipnet::IpNet;
 use linkerd2_proxy_api::{inbound as api, net::InvalidIpNetwork};
 use linkerd_http_route::{
@@ -65,6 +66,9 @@ pub enum InvalidHttpRoute {
 
     #[error("invalid request redirect: {0}")]
     InvalidRedirect(#[from] RequestRedirectError),
+
+    #[error("invalid error responder: {0}")]
+    InvalidErrorRespnder(#[from] ErrorResponderError),
 
     #[error("invalid authorization: {0}")]
     InvalidAuthz(#[from] InvalidAuthz),

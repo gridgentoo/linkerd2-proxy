@@ -15,7 +15,7 @@ use linkerd_app_core::{
 use linkerd_server_policy::{
     http_route::{
         self,
-        filter::{InvalidRedirect, Redirection},
+        filter::{InvalidRedirect, Redirection, RespondWithError},
     },
     Meta as RouteMeta, RouteFilter,
 };
@@ -57,6 +57,10 @@ pub struct HttpRouteInvalidRedirect(#[from] pub InvalidRedirect);
 #[derive(Debug, thiserror::Error)]
 #[error("request redirected to {}", .0.location)]
 pub struct HttpRouteRedirect(pub Redirection);
+
+#[derive(Debug, thiserror::Error)]
+#[error("API indicated an error response: {}: {}", .0.status, .0.message)]
+pub struct HttpRouteErrorResponse(pub RespondWithError);
 
 #[derive(Debug, thiserror::Error)]
 #[error("unknown filter type in route: {} {} {}", .0.group, .0.kind, .0.name)]
@@ -212,6 +216,12 @@ where
                         tracing::debug!("Ignoring irrelvant redirect");
                     }
                 },
+
+                RouteFilter::Error(respond) => {
+                    return future::Either::Right(future::err(
+                        HttpRouteErrorResponse(respond.clone()).into(),
+                    ));
+                }
 
                 RouteFilter::Unknown => {
                     let meta = route.meta.clone();

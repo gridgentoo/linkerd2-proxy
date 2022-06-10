@@ -1,12 +1,9 @@
 use crate::{
-    filter::{ModifyPath, ModifyRequestHeader, RedirectRequest},
+    filter::{ModifyPath, ModifyRequestHeader, RedirectRequest, RespondWithError},
     r#match::{MatchHeader, MatchPath, MatchQueryParam, MatchRequest},
     MatchHost,
 };
-use linkerd2_proxy_api::{
-    http_route::{self as api, Responder},
-    http_types,
-};
+use linkerd2_proxy_api::{http_route as api, http_types};
 
 // === impl MatchHost ===
 
@@ -250,59 +247,29 @@ impl TryFrom<api::RequestRedirect> for RedirectRequest {
     }
 }
 
-/*
-impl TryFrom<api::ErrorRespond> for Responder {
-    type Error = RequestRedirectError;
+// === impl RespondWithError ===
 
-    fn try_from(rr: api::RequestRedirect) -> Result<Self, Self::Error> {
-        let scheme = match rr.scheme {
-            None => None,
-            Some(s) => Some(s.try_into()?),
-        };
+#[derive(Debug, thiserror::Error)]
+pub enum ErrorResponderError {
+    #[error("invalid HTTP status code: {0}")]
+    InvalidStatus(#[from] http::status::InvalidStatusCode),
 
-        let host = if rr.host.is_empty() {
-            None
-        } else {
-            // TODO ensure hostname is valid.
-            Some(rr.host)
-        };
+    #[error("invalid HTTP status code: {0}")]
+    InvalidStatusNonU16(u32),
+}
 
-        let path = rr.path.and_then(|p| p.replace).map(|p| match p {
-            api::path_modifier::Replace::Full(path) => {
-                // TODO ensure path is valid.
-                ModifyPath::ReplaceFullPath(path)
-            }
-            api::path_modifier::Replace::Prefix(prefix) => {
-                // TODO ensure prefix is valid.
-                ModifyPath::ReplacePrefixMatch(prefix)
-            }
-        });
+impl TryFrom<api::ErrorResponder> for RespondWithError {
+    type Error = ErrorResponderError;
 
-        let port = {
-            if rr.port > (u16::MAX as u32) {
-                return Err(RequestRedirectError::InvalidPort(rr.port));
-            }
-            if rr.port == 0 {
-                None
-            } else {
-                Some(rr.port as u16)
-            }
-        };
+    fn try_from(proto: api::ErrorResponder) -> Result<Self, Self::Error> {
+        if proto.status > u16::MAX as u32 {
+            return Err(ErrorResponderError::InvalidStatusNonU16(proto.status));
+        }
+        let status = http::StatusCode::from_u16(proto.status as u16)?;
 
-        let status = match rr.status {
-            0 => None,
-            s if 100 >= s || s < 600 => Some(http::StatusCode::from_u16(s as u16)?),
-            s => return Err(RequestRedirectError::InvalidStatusNonU16(s)),
-        };
-
-        Ok(RedirectRequest {
-            scheme,
-            host,
-            path,
-            port,
+        Ok(RespondWithError {
             status,
+            message: proto.message.into(),
         })
     }
 }
-
-*/

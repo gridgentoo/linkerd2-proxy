@@ -32,11 +32,11 @@ pub trait HttpRescue<E> {
 
 #[derive(Clone, Debug)]
 pub struct SyntheticHttpResponse {
-    pub grpc_status: tonic::Code,
-    pub http_status: http::StatusCode,
-    pub close_connection: bool,
-    pub message: Cow<'static, str>,
-    pub location: Option<http::header::HeaderValue>,
+    grpc_status: tonic::Code,
+    http_status: http::StatusCode,
+    close_connection: bool,
+    message: Cow<'static, str>,
+    location: Option<http::header::HeaderValue>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -170,6 +170,16 @@ impl SyntheticHttpResponse {
                 http::header::HeaderValue::from_str(&*location.to_string())
                     .expect("location must be a valid header value"),
             ),
+        }
+    }
+
+    pub fn response(http_status: http::StatusCode, message: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            http_status,
+            location: None,
+            grpc_status: tonic::Code::FailedPrecondition,
+            close_connection: false,
+            message: message.into(),
         }
     }
 

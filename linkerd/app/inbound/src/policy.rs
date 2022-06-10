@@ -11,8 +11,8 @@ pub(crate) use self::store::Store;
 pub use self::{
     config::Config,
     http::{
-        HttpRouteInvalidRedirect, HttpRouteNotFound, HttpRouteRedirect, HttpRouteUnauthorized,
-        HttpRouteUnknownFilter, NewHttpPolicy,
+        HttpRouteErrorResponse, HttpRouteInvalidRedirect, HttpRouteNotFound, HttpRouteRedirect,
+        HttpRouteUnauthorized, HttpRouteUnknownFilter, NewHttpPolicy,
     },
     tcp::NewTcpPolicy,
 };
@@ -27,7 +27,7 @@ use linkerd_app_core::{
 use linkerd_cache::Cached;
 pub use linkerd_server_policy::{
     authz::Suffix,
-    http_route::filter::{InvalidRedirect, Redirection},
+    http_route::filter::{InvalidRedirect, Redirection, RespondWithError},
     Authentication, Authorization, HttpRoute, Meta, Protocol, ServerPolicy,
 };
 use std::sync::Arc;
