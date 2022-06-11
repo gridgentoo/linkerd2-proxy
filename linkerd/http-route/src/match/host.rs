@@ -12,7 +12,7 @@ pub enum MatchHost {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub(crate) enum HostMatch {
+pub enum HostMatch {
     Exact(usize),
     Suffix(usize),
 }
@@ -48,7 +48,7 @@ impl std::str::FromStr for MatchHost {
 }
 
 impl MatchHost {
-    pub(crate) fn summarize_match(&self, uri: &Uri) -> Option<HostMatch> {
+    pub fn summarize_match(&self, uri: &Uri) -> Option<HostMatch> {
         let mut host = uri.authority()?.host();
 
         match self {

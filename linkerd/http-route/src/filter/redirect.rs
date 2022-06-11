@@ -1,11 +1,9 @@
 use super::ModifyPath;
 use crate::HttpRouteMatch;
 use http::{
-    header::{HeaderName, HeaderValue},
     uri::{Authority, InvalidUri, Scheme, Uri},
     StatusCode,
 };
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct RedirectRequest {
@@ -14,13 +12,6 @@ pub struct RedirectRequest {
     pub port: Option<u16>,
     pub path: Option<ModifyPath>,
     pub status: Option<StatusCode>,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Respond {
-    pub status: StatusCode,
-    pub headers: Arc<[(HeaderName, HeaderValue)]>,
-    pub body: bytes::Bytes,
 }
 
 #[derive(Debug, thiserror::Error)]

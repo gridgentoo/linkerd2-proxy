@@ -1063,6 +1063,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "linkerd-grpc-route"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "linkerd-http-route",
+ "linkerd2-proxy-api",
+ "maplit",
+ "thiserror",
+]
+
+[[package]]
 name = "linkerd-http-access-log"
 version = "0.1.0"
 dependencies = [
@@ -1143,15 +1154,11 @@ dependencies = [
 name = "linkerd-http-route"
 version = "0.1.0"
 dependencies = [
- "bytes",
- "futures",
  "http",
- "linkerd-stack",
  "linkerd2-proxy-api",
  "maplit",
  "regex",
  "thiserror",
- "tokio",
  "url",
 ]
 
@@ -1700,7 +1707,7 @@ dependencies = [
 [[package]]
 name = "linkerd2-proxy-api"
 version = "0.5.0"
-source = "git+https://github.com/linkerd/linkerd2-proxy-api?branch=ver/rautz#f1065869684b6eabf60c56f52d71238763ac2f12"
+source = "git+https://github.com/linkerd/linkerd2-proxy-api?branch=ver/rautz#ad6e9eb8da43630707de357c0c1e8af7c3c37a17"
 dependencies = [
  "h2",
  "http",

@@ -6,31 +6,32 @@ mod r#match;
 #[cfg(feature = "proto")]
 pub mod proto;
 
-pub use self::r#match::{HostMatch, MatchHeader, MatchHost, MatchRequest};
-use self::r#match::{PathMatch, RequestMatch};
+pub use self::r#match::MatchRequest;
+use self::r#match::RequestMatch;
+pub use linkerd_http_route::{HostMatch, MatchHost};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct HttpRoute<T> {
+pub struct GrpcRoute<T> {
     pub hosts: Vec<MatchHost>,
-    pub rules: Vec<HttpRule<T>>,
+    pub rules: Vec<GrpcRule<T>>,
 }
 
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub struct HttpRule<T> {
+pub struct GrpcRule<T> {
     pub matches: Vec<MatchRequest>,
     pub policy: T,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct HttpRouteMatch {
+pub struct GrpcRouteMatch {
     host: Option<HostMatch>,
     request: RequestMatch,
 }
 
 pub fn find<'t, T, B>(
-    routes: impl IntoIterator<Item = &'t HttpRoute<T>>,
+    routes: impl IntoIterator<Item = &'t GrpcRoute<T>>,
     req: &http::Request<B>,
-) -> Option<(HttpRouteMatch, &'t T)> {
+) -> Option<(GrpcRouteMatch, &'t T)> {
     routes
         .into_iter()
         .filter_map(|rt| rt.find(req))
@@ -39,10 +40,10 @@ pub fn find<'t, T, B>(
         .reduce(|(m0, t0), (m, t)| if m0 < m { (m, t) } else { (m0, t0) })
 }
 
-// === impl HttpRoute ===
+// === impl GrpcRoute ===
 
-impl<T> HttpRoute<T> {
-    fn find<B>(&self, req: &http::Request<B>) -> Option<(HttpRouteMatch, &T)> {
+impl<T> GrpcRoute<T> {
+    fn find<B>(&self, req: &http::Request<B>) -> Option<(GrpcRouteMatch, &T)> {
         let host = if self.hosts.is_empty() {
             None
         } else {
@@ -77,13 +78,14 @@ impl<T> HttpRoute<T> {
             // that the first match wins.
             .reduce(|(m0, p0), (m, p)| if m0 < m { (m, p) } else { (m0, p0) })?;
 
-        Some((HttpRouteMatch { host, request }, policy))
+        Some((GrpcRouteMatch { host, request }, policy))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{r#match::*, *};
+    use linkerd_http_route::MatchHeader;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum Policy {
@@ -102,21 +104,27 @@ mod tests {
     #[test]
     fn hostname_precedence() {
         let rts = vec![
-            HttpRoute {
+            GrpcRoute {
                 hosts: vec!["*.example.com".parse().unwrap()],
-                rules: vec![HttpRule {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo".to_string())),
+                        rpc: MatchRpc {
+                            service: Some("foo".to_string()),
+                            method: Some("bar".to_string()),
+                        },
                         ..MatchRequest::default()
                     }],
-                    ..HttpRule::default()
+                    ..GrpcRule::default()
                 }],
             },
-            HttpRoute {
+            GrpcRoute {
                 hosts: vec!["foo.example.com".parse().unwrap()],
-                rules: vec![HttpRule {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo".to_string())),
+                        rpc: MatchRpc {
+                            service: Some("foo".to_string()),
+                            method: Some("bar".to_string()),
+                        },
                         ..MatchRequest::default()
                     }],
                     policy: Policy::Expected,
@@ -125,7 +133,8 @@ mod tests {
         ];
 
         let req = http::Request::builder()
-            .uri("http://foo.example.com/foo")
+            .method(http::Method::POST)
+            .uri("http://foo.example.com/foo/bar")
             .body(())
             .unwrap();
         let (_, policy) = find(&rts, &req).expect("must match");
@@ -133,23 +142,29 @@ mod tests {
     }
 
     #[test]
-    fn path_length_precedence() {
+    fn method_precedence() {
         // Given two equivalent routes, choose the longer path match.
         let rts = vec![
-            HttpRoute {
-                rules: vec![HttpRule {
+            GrpcRoute {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
-                        path: Some(MatchPath::Prefix("/foo".to_string())),
+                        rpc: MatchRpc {
+                            service: Some("foo".to_string()),
+                            method: None,
+                        },
                         ..MatchRequest::default()
                     }],
-                    ..HttpRule::default()
+                    ..GrpcRule::default()
                 }],
                 hosts: vec![],
             },
-            HttpRoute {
-                rules: vec![HttpRule {
+            GrpcRoute {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
-                        path: Some(MatchPath::Exact("/foo/bar".to_string())),
+                        rpc: MatchRpc {
+                            service: Some("foo".to_string()),
+                            method: Some("bar".to_string()),
+                        },
                         ..MatchRequest::default()
                     }],
                     policy: Policy::Expected,
@@ -159,6 +174,7 @@ mod tests {
         ];
 
         let req = http::Request::builder()
+            .method(http::Method::POST)
             .uri("http://foo.example.com/foo/bar")
             .body(())
             .unwrap();
@@ -171,8 +187,8 @@ mod tests {
     #[test]
     fn header_count_precedence() {
         let rts = vec![
-            HttpRoute {
-                rules: vec![HttpRule {
+            GrpcRoute {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
                         headers: vec![
                             MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
@@ -180,12 +196,12 @@ mod tests {
                         ],
                         ..MatchRequest::default()
                     }],
-                    ..HttpRule::default()
+                    ..GrpcRule::default()
                 }],
                 hosts: vec![],
             },
-            HttpRoute {
-                rules: vec![HttpRule {
+            GrpcRoute {
+                rules: vec![GrpcRule {
                     matches: vec![MatchRequest {
                         headers: vec![
                             MatchHeader::Exact("x-foo".parse().unwrap(), "bar".parse().unwrap()),
@@ -201,7 +217,8 @@ mod tests {
         ];
 
         let req = http::Request::builder()
-            .uri("http://www.example.com")
+            .method(http::Method::POST)
+            .uri("http://www.example.com/foo/bar")
             .header("x-foo", "bar")
             .header("x-baz", "qux")
             .header("x-biz", "qyx")
@@ -216,20 +233,20 @@ mod tests {
     #[test]
     fn first_identical_wins() {
         let rts = vec![
-            HttpRoute {
+            GrpcRoute {
                 rules: vec![
-                    HttpRule {
+                    GrpcRule {
                         policy: Policy::Expected,
-                        ..HttpRule::default()
+                        ..GrpcRule::default()
                     },
                     // Redundant rule.
-                    HttpRule::default(),
+                    GrpcRule::default(),
                 ],
                 hosts: vec![],
             },
             // Redundant route.
-            HttpRoute {
-                rules: vec![HttpRule::default()],
+            GrpcRoute {
+                rules: vec![GrpcRule::default()],
                 hosts: vec![],
             },
         ];
