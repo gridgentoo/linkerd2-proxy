@@ -1,5 +1,5 @@
 use super::ModifyPath;
-use crate::HttpRouteMatch;
+use crate::http::RouteMatch;
 use http::{
     uri::{Authority, InvalidUri, Scheme, Uri},
     StatusCode,
@@ -41,7 +41,7 @@ impl RedirectRequest {
     pub fn apply(
         &self,
         orig_uri: &http::Uri,
-        rm: &HttpRouteMatch,
+        rm: &RouteMatch,
     ) -> Result<Option<Redirection>, InvalidRedirect> {
         let location = {
             let scheme = self
@@ -66,13 +66,13 @@ impl RedirectRequest {
             };
 
             let path = {
-                use crate::PathMatch;
+                use crate::http::r#match::PathMatch;
 
                 let orig_path = orig_uri.path();
                 match &self.path {
                     None => orig_path.to_string(),
                     Some(ModifyPath::ReplaceFullPath(p)) => p.clone(),
-                    Some(ModifyPath::ReplacePrefixMatch(new_pfx)) => match rm.request.path() {
+                    Some(ModifyPath::ReplacePrefixMatch(new_pfx)) => match rm.route.path() {
                         PathMatch::Prefix(pfx_len) if *pfx_len <= orig_path.len() => {
                             let (_, rest) = orig_path.split_at(*pfx_len);
                             format!("{}{}", new_pfx, rest)
@@ -96,5 +96,85 @@ impl RedirectRequest {
         let status = self.status.unwrap_or(http::StatusCode::MOVED_PERMANENTLY);
 
         Ok(Some(Redirection { status, location }))
+    }
+}
+
+#[cfg(feature = "proto")]
+mod proto {
+    use super::*;
+    use linkerd2_proxy_api::{http_route as api, http_types};
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum RequestRedirectError {
+        #[error("invalid location scheme: {0}")]
+        InvalidScheme(#[from] http_types::InvalidScheme),
+
+        #[error("invalid HTTP status code: {0}")]
+        InvalidStatus(#[from] http::status::InvalidStatusCode),
+
+        #[error("invalid HTTP status code: {0}")]
+        InvalidStatusNonU16(u32),
+
+        #[error("invalid port number: {0}")]
+        InvalidPort(u32),
+
+        #[error("{0}")]
+        InvalidValue(#[from] http::header::InvalidHeaderValue),
+    }
+
+    // === impl RedirectRequest ===
+
+    impl TryFrom<api::RequestRedirect> for RedirectRequest {
+        type Error = RequestRedirectError;
+
+        fn try_from(rr: api::RequestRedirect) -> Result<Self, Self::Error> {
+            let scheme = match rr.scheme {
+                None => None,
+                Some(s) => Some(s.try_into()?),
+            };
+
+            let host = if rr.host.is_empty() {
+                None
+            } else {
+                // TODO ensure hostname is valid.
+                Some(rr.host)
+            };
+
+            let path = rr.path.and_then(|p| p.replace).map(|p| match p {
+                api::path_modifier::Replace::Full(path) => {
+                    // TODO ensure path is valid.
+                    ModifyPath::ReplaceFullPath(path)
+                }
+                api::path_modifier::Replace::Prefix(prefix) => {
+                    // TODO ensure prefix is valid.
+                    ModifyPath::ReplacePrefixMatch(prefix)
+                }
+            });
+
+            let port = {
+                if rr.port > (u16::MAX as u32) {
+                    return Err(RequestRedirectError::InvalidPort(rr.port));
+                }
+                if rr.port == 0 {
+                    None
+                } else {
+                    Some(rr.port as u16)
+                }
+            };
+
+            let status = match rr.status {
+                0 => None,
+                s if 100 >= s || s < 600 => Some(http::StatusCode::from_u16(s as u16)?),
+                s => return Err(RequestRedirectError::InvalidStatusNonU16(s)),
+            };
+
+            Ok(RedirectRequest {
+                scheme,
+                host,
+                path,
+                port,
+                status,
+            })
+        }
     }
 }

@@ -1,13 +1,13 @@
-use linkerd_http_route::MatchHeader;
+use crate::http::MatchHeader;
 
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub struct MatchRequest {
+pub struct MatchRoute {
     pub(crate) rpc: MatchRpc,
     pub(crate) headers: Vec<MatchHeader>,
 }
 
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub(crate) struct RequestMatch {
+pub struct RouteMatch {
     rpc: RpcMatch,
     headers: usize,
 }
@@ -24,10 +24,12 @@ pub(crate) struct RpcMatch {
     method: usize,
 }
 
-// === impl MatchRequest ===
+// === impl MatchRoute ===
 
-impl MatchRequest {
-    pub(crate) fn summarize_match<B>(&self, req: &http::Request<B>) -> Option<RequestMatch> {
+impl crate::Match for MatchRoute {
+    type Summary = RouteMatch;
+
+    fn r#match<B>(&self, req: &http::Request<B>) -> Option<RouteMatch> {
         if req.method() != http::Method::POST {
             return None;
         }
@@ -41,19 +43,19 @@ impl MatchRequest {
             self.headers.len()
         };
 
-        Some(RequestMatch { rpc, headers })
+        Some(RouteMatch { rpc, headers })
     }
 }
 
-// === impl RequestMatch ===
+// === impl RouteMatch ===
 
-impl std::cmp::PartialOrd for RequestMatch {
+impl std::cmp::PartialOrd for RouteMatch {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl std::cmp::Ord for RequestMatch {
+impl std::cmp::Ord for RouteMatch {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match self.rpc.cmp(&other.rpc) {
@@ -97,36 +99,37 @@ impl MatchRpc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Match;
     use http::header::{HeaderName, HeaderValue};
 
     // Empty matches apply to all requests.
     #[test]
     fn empty_match() {
-        let m = MatchRequest::default();
+        let m = MatchRoute::default();
 
         let req = http::Request::builder()
             .method(http::Method::POST)
             .uri("http://example.com/foo/bar")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), Some(RequestMatch::default()));
+        assert_eq!(m.r#match(&req), Some(RouteMatch::default()));
 
         let req = http::Request::builder()
             .method(http::Method::POST)
             .uri("http://example.com/foo")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
     fn method() {
-        let m = MatchRequest {
+        let m = MatchRoute {
             rpc: MatchRpc {
                 service: None,
                 method: Some("bar".to_string()),
             },
-            ..MatchRequest::default()
+            ..MatchRoute::default()
         };
 
         let req = http::Request::builder()
@@ -135,8 +138,8 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
-            Some(RequestMatch {
+            m.r#match(&req),
+            Some(RouteMatch {
                 rpc: RpcMatch {
                     service: 0,
                     method: 3
@@ -150,12 +153,12 @@ mod tests {
             .uri("https://example.org/foo/bah")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
     fn headers() {
-        let m = MatchRequest {
+        let m = MatchRoute {
             headers: vec![
                 MatchHeader::Exact(
                     HeaderName::from_static("x-foo"),
@@ -163,7 +166,7 @@ mod tests {
                 ),
                 MatchHeader::Regex(HeaderName::from_static("x-baz"), "qu+x".parse().unwrap()),
             ],
-            ..MatchRequest::default()
+            ..MatchRoute::default()
         };
 
         let req = http::Request::builder()
@@ -171,7 +174,7 @@ mod tests {
             .uri("http://example.com/foo")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
 
         let req = http::Request::builder()
             .method(http::Method::POST)
@@ -180,7 +183,7 @@ mod tests {
             .header("x-baz", "zab") // invalid header value
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
 
         // Regex matches apply
         let req = http::Request::builder()
@@ -191,10 +194,10 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
-            Some(RequestMatch {
+            m.r#match(&req),
+            Some(RouteMatch {
                 headers: 2,
-                ..RequestMatch::default()
+                ..RouteMatch::default()
             })
         );
 
@@ -206,12 +209,12 @@ mod tests {
             .header("x-baz", "quxa")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
     fn http_method() {
-        let m = MatchRequest {
+        let m = MatchRoute {
             rpc: MatchRpc {
                 service: Some("foo".to_string()),
                 method: Some("bar".to_string()),
@@ -225,8 +228,8 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
-            Some(RequestMatch {
+            m.r#match(&req),
+            Some(RouteMatch {
                 rpc: RpcMatch {
                     service: 3,
                     method: 3,
@@ -240,12 +243,12 @@ mod tests {
             .uri("http://example.com/foo/bar")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
     fn multiple() {
-        let m = MatchRequest {
+        let m = MatchRoute {
             rpc: MatchRpc {
                 service: Some("foo".to_string()),
                 method: Some("bar".to_string()),
@@ -263,8 +266,8 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
-            Some(RequestMatch {
+            m.r#match(&req),
+            Some(RouteMatch {
                 rpc: RpcMatch {
                     service: 3,
                     method: 3
@@ -280,6 +283,6 @@ mod tests {
             .header("x-foo", "bah")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 }

@@ -65,22 +65,14 @@ fn mk(
     ServerPolicy {
         protocol: Protocol::Detect {
             timeout,
-            http: Default::default(),
+            http: vec![].into(),
         },
         authorizations: vec![Authorization {
             networks: nets.into_iter().map(Into::into).collect(),
             authentication,
-            meta: Arc::new(Meta {
-                group: "default".into(),
-                kind: "default".into(),
-                name: name.into(),
-            }),
+            meta: Arc::new(Meta::Default { name }),
         }]
         .into(),
-        meta: Arc::new(Meta {
-            group: "default".into(),
-            kind: "default".into(),
-            name: name.into(),
-        }),
+        meta: Arc::new(Meta::Default { name }),
     }
 }

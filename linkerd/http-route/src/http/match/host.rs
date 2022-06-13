@@ -106,6 +106,29 @@ impl std::cmp::Ord for HostMatch {
     }
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use super::*;
+    use linkerd2_proxy_api::http_route as api;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("host match must contain a match")]
+    pub struct HostMatchError;
+
+    // === impl MatchHost ===
+
+    impl TryFrom<api::HostMatch> for MatchHost {
+        type Error = HostMatchError;
+
+        fn try_from(hm: api::HostMatch) -> Result<Self, Self::Error> {
+            match hm.r#match.ok_or(HostMatchError)? {
+                api::host_match::Match::Exact(h) => Ok(MatchHost::Exact(h)),
+                api::host_match::Match::Suffix(sfx) => Ok(MatchHost::Suffix(sfx.reverse_labels)),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

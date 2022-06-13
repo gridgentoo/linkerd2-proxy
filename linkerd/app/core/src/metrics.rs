@@ -320,7 +320,9 @@ impl FmtLabels for ServerLabel {
         write!(
             f,
             "srv_group=\"{}\",srv_kind=\"{}\",srv_name=\"{}\"",
-            self.0.group, self.0.kind, self.0.name
+            self.0.group(),
+            self.0.kind(),
+            self.0.name()
         )
     }
 }
@@ -331,7 +333,9 @@ impl FmtLabels for ServerAuthzLabels {
         write!(
             f,
             ",authz_group=\"{}\",authz_kind=\"{}\",authz_name=\"{}\"",
-            self.authz.group, self.authz.kind, self.authz.name
+            self.authz.group(),
+            self.authz.kind(),
+            self.authz.name()
         )
     }
 }
@@ -342,7 +346,9 @@ impl FmtLabels for RouteLabels {
         write!(
             f,
             ",route_group=\"{}\",route_kind=\"{}\",route_name=\"{}\"",
-            self.route.group, self.route.kind, self.route.name,
+            self.route.group(),
+            self.route.kind(),
+            self.route.name(),
         )
     }
 }
@@ -353,7 +359,9 @@ impl FmtLabels for RouteAuthzLabels {
         write!(
             f,
             ",authz_group=\"{}\",authz_kind=\"{}\",authz_name=\"{}\"",
-            self.authz.group, self.authz.kind, self.authz.name,
+            self.authz.group(),
+            self.authz.kind(),
+            self.authz.name(),
         )
     }
 }

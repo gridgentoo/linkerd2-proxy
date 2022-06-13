@@ -471,14 +471,14 @@ mod tests {
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![client_addr().ip().into()],
-                    meta: Arc::new(Meta {
+                    meta: Arc::new(Meta::Resource {
                         group: "policy.linkerd.io".into(),
                         kind: "serverathorization".into(),
                         name: "testsaz".into(),
                     }),
                 }]
                 .into(),
-                meta: Arc::new(Meta {
+                meta: Arc::new(Meta::Resource {
                     group: "policy.linkerd.io".into(),
                     kind: "server".into(),
                     name: "testsrv".into(),
@@ -516,7 +516,7 @@ mod tests {
             }),
             policy: allow(Protocol::Detect {
                 timeout: std::time::Duration::from_secs(10),
-                http: Default::default(),
+                http: vec![].into(),
             }),
         };
 
@@ -546,7 +546,7 @@ mod tests {
             }),
             policy: allow(Protocol::Detect {
                 timeout: std::time::Duration::from_secs(10),
-                http: Default::default(),
+                http: vec![].into(),
             }),
         };
 
@@ -573,7 +573,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http1(Default::default())),
+            policy: allow(Protocol::Http1(vec![].into())),
         };
 
         let (ior, mut iow) = io::duplex(100);
@@ -599,7 +599,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http1(Default::default())),
+            policy: allow(Protocol::Http1(vec![].into())),
         };
 
         let (ior, mut iow) = io::duplex(100);
@@ -625,7 +625,7 @@ mod tests {
                 client_id: Some(client_id()),
                 negotiated_protocol: None,
             }),
-            policy: allow(Protocol::Http2(Default::default())),
+            policy: allow(Protocol::Http2(vec![].into())),
         };
 
         let (ior, _) = io::duplex(100);

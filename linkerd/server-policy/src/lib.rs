@@ -2,13 +2,11 @@
 #![forbid(unsafe_code)]
 
 pub mod authz;
-#[cfg(feature = "proto")]
-mod proto;
+pub mod grpc;
+pub mod http;
 
 pub use self::authz::{Authentication, Authorization};
-pub use linkerd_grpc_route as grpc_route;
-pub use linkerd_http_route as http_route;
-use std::{borrow::Cow, hash::Hash, sync::Arc, time};
+use std::{hash::Hash, sync::Arc, time};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerPolicy {
@@ -20,21 +18,14 @@ pub struct ServerPolicy {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Protocol {
     Detect {
-        http: HttpConfig,
+        http: Arc<[http::Route]>,
         timeout: time::Duration,
     },
-    Http1(HttpConfig),
-    Http2(HttpConfig),
-    Grpc(GrpcConfig),
+    Http1(Arc<[http::Route]>),
+    Http2(Arc<[http::Route]>),
+    Grpc(Arc<[grpc::Route]>),
     Opaque,
     Tls,
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Meta {
-    pub group: Cow<'static, str>,
-    pub kind: Cow<'static, str>,
-    pub name: Cow<'static, str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -44,72 +35,37 @@ pub struct RoutePolicy<T> {
     pub filters: Vec<T>,
 }
 
-pub type HttpRoute = http_route::HttpRoute<RoutePolicy<HttpRouteFilter>>;
-pub type HttpRule = http_route::HttpRule<RoutePolicy<HttpRouteFilter>>;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct HttpConfig {
-    pub routes: Arc<[HttpRoute]>,
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum Meta {
+    Default {
+        name: &'static str,
+    },
+    Resource {
+        group: String,
+        kind: String,
+        name: String,
+    },
 }
 
-pub type GrpcRoute = grpc_route::GrpcRoute<RoutePolicy<GrpcRouteFilter>>;
-pub type GrpcRule = grpc_route::GrpcRule<RoutePolicy<GrpcRouteFilter>>;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct GrpcConfig {
-    pub routes: Arc<[GrpcRoute]>,
-}
-
-// === impl HttpConfig ===
-
-impl Default for HttpConfig {
-    fn default() -> Self {
-        Self {
-            routes: vec![].into(),
+impl Meta {
+    pub fn name(&self) -> &str {
+        match self {
+            Meta::Default { name } => name,
+            Meta::Resource { name, .. } => &*name,
         }
     }
-}
 
-// === impl HttpRouteFilter ===
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum HttpRouteFilter {
-    Error(http_route::filter::RespondWithError),
-
-    RequestHeaders(http_route::filter::ModifyRequestHeader),
-
-    Redirect(http_route::filter::RedirectRequest),
-
-    /// Indicates that the filter kind is unknown to the proxy (e.g., because
-    /// the controller is on a new version of the protobuf).
-    ///
-    /// Route handlers must be careful about this situation, as it may not be
-    /// appropriate for a proxy to skip filtering logic.
-    Unknown,
-}
-
-// === impl GrpcConfig ===
-
-impl Default for GrpcConfig {
-    fn default() -> Self {
-        Self {
-            routes: vec![].into(),
+    pub fn kind(&self) -> &str {
+        match self {
+            Meta::Default { .. } => "default",
+            Meta::Resource { kind, .. } => &*kind,
         }
     }
-}
 
-// === impl GrpcRouteFilter ===
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum GrpcRouteFilter {
-    Error(grpc_route::filter::RespondWithError),
-
-    RequestHeaders(http_route::filter::ModifyRequestHeader),
-
-    /// Indicates that the filter kind is unknown to the proxy (e.g., because
-    /// the controller is on a new version of the protobuf).
-    ///
-    /// Route handlers must be careful about this situation, as it may not be
-    /// appropriate for a proxy to skip filtering logic.
-    Unknown,
+    pub fn group(&self) -> &str {
+        match self {
+            Meta::Default { .. } => "",
+            Meta::Resource { group, .. } => &*group,
+        }
+    }
 }

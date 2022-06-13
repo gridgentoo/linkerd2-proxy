@@ -20,7 +20,7 @@ pub struct MatchRequest {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub(crate) struct RequestMatch {
+pub struct RequestMatch {
     path_match: PathMatch,
     headers: usize,
     query_params: usize,
@@ -29,8 +29,10 @@ pub(crate) struct RequestMatch {
 
 // === impl MatchRequest ===
 
-impl MatchRequest {
-    pub(crate) fn summarize_match<B>(&self, req: &http::Request<B>) -> Option<RequestMatch> {
+impl crate::Match for MatchRequest {
+    type Summary = RequestMatch;
+
+    fn r#match<B>(&self, req: &http::Request<B>) -> Option<RequestMatch> {
         let mut summary = RequestMatch::default();
 
         if let Some(method) = &self.method {
@@ -103,9 +105,45 @@ impl std::cmp::Ord for RequestMatch {
     }
 }
 
+#[cfg(feature = "proto")]
+mod proto {
+    use super::*;
+    use linkerd2_proxy_api::http_route as api;
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum RouteMatchError {
+        #[error("invalid path match: {0}")]
+        Path(#[from] path::proto::PathMatchError),
+
+        #[error("invalid header match: {0}")]
+        Header(#[from] header::proto::HeaderMatchError),
+
+        #[error("invalid query param match: {0}")]
+        QueryParam(#[from] query_param::proto::QueryParamMatchError),
+    }
+
+    // === impl MatchRequest ===
+
+    impl TryFrom<api::HttpRouteMatch> for MatchRequest {
+        type Error = RouteMatchError;
+
+        fn try_from(rm: api::HttpRouteMatch) -> Result<Self, Self::Error> {
+            let path = match rm.path {
+                None => None,
+                Some(pm) => Some(pm.try_into()?),
+            };
+            Ok(MatchRequest {
+                path,
+                ..MatchRequest::default()
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Match;
     use http::header::{HeaderName, HeaderValue};
 
     // Empty matches apply to all requests.
@@ -114,13 +152,13 @@ mod tests {
         let m = MatchRequest::default();
 
         let req = http::Request::builder().body(()).unwrap();
-        assert_eq!(m.summarize_match(&req), Some(RequestMatch::default()));
+        assert_eq!(m.r#match(&req), Some(RequestMatch::default()));
 
         let req = http::Request::builder()
             .method(http::Method::HEAD)
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), Some(RequestMatch::default()));
+        assert_eq!(m.r#match(&req), Some(RequestMatch::default()));
     }
 
     #[test]
@@ -135,7 +173,7 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
+            m.r#match(&req),
             Some(RequestMatch {
                 method: true,
                 ..Default::default()
@@ -147,7 +185,7 @@ mod tests {
             .uri("https://example.org/")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
@@ -167,7 +205,7 @@ mod tests {
             .uri("http://example.com/foo")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
 
         let req = http::Request::builder()
             .uri("https://example.org/")
@@ -175,7 +213,7 @@ mod tests {
             .header("x-baz", "zab") // invalid header value
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
 
         // Regex matches apply
         let req = http::Request::builder()
@@ -185,7 +223,7 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
+            m.r#match(&req),
             Some(RequestMatch {
                 headers: 2,
                 ..RequestMatch::default()
@@ -199,7 +237,7 @@ mod tests {
             .header("x-baz", "quxa")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 
     #[test]
@@ -213,14 +251,14 @@ mod tests {
             .uri("http://example.com/foo")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
 
         let req = http::Request::builder()
             .uri("https://example.org/foo/bar")
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
+            m.r#match(&req),
             Some(RequestMatch {
                 path_match: PathMatch::Exact("/foo/bar".len()),
                 ..Default::default()
@@ -246,7 +284,7 @@ mod tests {
             .body(())
             .unwrap();
         assert_eq!(
-            m.summarize_match(&req),
+            m.r#match(&req),
             Some(RequestMatch {
                 path_match: PathMatch::Exact("/foo/bar".len()),
                 headers: 1,
@@ -262,6 +300,6 @@ mod tests {
             .header("x-foo", "bar")
             .body(())
             .unwrap();
-        assert_eq!(m.summarize_match(&req), None);
+        assert_eq!(m.r#match(&req), None);
     }
 }

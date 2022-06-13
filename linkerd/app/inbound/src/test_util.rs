@@ -55,19 +55,19 @@ pub fn default_config() -> Config {
             default: ServerPolicy {
                 protocol: Protocol::Detect {
                     timeout: std::time::Duration::from_secs(10),
-                    http: Default::default(),
+                    http: vec![].into(),
                 },
                 authorizations: vec![Authorization {
                     authentication: Authentication::Unauthenticated,
                     networks: vec![Default::default()],
-                    meta: Arc::new(Meta {
+                    meta: Arc::new(Meta::Resource {
                         group: "policy.linkerd.io".into(),
                         kind: "serverauthorization".into(),
                         name: "testsaz".into(),
                     }),
                 }]
                 .into(),
-                meta: Arc::new(Meta {
+                meta: Arc::new(Meta::Resource {
                     group: "policy.linkerd.io".into(),
                     kind: "server".into(),
                     name: "testsrv".into(),

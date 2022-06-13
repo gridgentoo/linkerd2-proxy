@@ -7,12 +7,11 @@ edition = "2021"
 publish = false
 
 [features]
-proto = ["linkerd-grpc-route/proto", "linkerd-http-route/proto", "linkerd2-proxy-api"]
+proto = ["linkerd-http-route/proto", "linkerd2-proxy-api"]
 
 [dependencies]
 ipnet = "2"
 http = "0.2"
-linkerd-grpc-route = { path = "../grpc-route" }
 linkerd-http-route = { path = "../http-route" }
 linkerd2-proxy-api = { version = "0.5", features = ["inbound"], optional = true }
 thiserror = "1"

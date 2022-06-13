@@ -1,5 +1,6 @@
 #![allow(dead_code)] // FIXME
 
+use super::Routes;
 use crate::{
     metrics::authz::HttpAuthzMetrics,
     policy::{AllowPolicy, RoutePermit},
@@ -9,16 +10,10 @@ use linkerd_app_core::{
     metrics::{RouteAuthzLabels, RouteLabels},
     svc::{self, ServiceExt},
     tls,
-    transport::{ClientAddr, Remote},
+    transport::{ClientAddr, OrigDstAddr, Remote},
     Error,
 };
-use linkerd_server_policy::{
-    http_route::{
-        self,
-        filter::{InvalidRedirect, Redirection, RespondWithError},
-    },
-    HttpRouteFilter, Meta as RouteMeta,
-};
+use linkerd_server_policy::{grpc, http, Authorization, Meta as RouteMeta};
 use std::{sync::Arc, task};
 
 /// A middleware that enforces policy on each HTTP request.
@@ -39,11 +34,17 @@ pub struct NewHttpPolicy<N> {
 #[derive(Clone, Debug)]
 pub struct AuthorizeHttp<T, N> {
     target: T,
-    client_addr: Remote<ClientAddr>,
-    tls: tls::ConditionalServerTls,
+    meta: Meta,
     policy: AllowPolicy,
     metrics: HttpAuthzMetrics,
     inner: N,
+}
+
+#[derive(Clone, Debug)]
+struct Meta {
+    dst: OrigDstAddr,
+    client: Remote<ClientAddr>,
+    tls: tls::ConditionalServerTls,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,18 +53,22 @@ pub struct HttpRouteNotFound(());
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid redirect: {0}")]
-pub struct HttpRouteInvalidRedirect(#[from] pub InvalidRedirect);
+pub struct HttpRouteInvalidRedirect(#[from] pub http::filter::InvalidRedirect);
 
 #[derive(Debug, thiserror::Error)]
 #[error("request redirected to {}", .0.location)]
-pub struct HttpRouteRedirect(pub Redirection);
+pub struct HttpRouteRedirect(pub http::filter::Redirection);
 
 #[derive(Debug, thiserror::Error)]
-#[error("API indicated an error response: {}: {}", .0.status, .0.message)]
-pub struct HttpRouteErrorResponse(pub RespondWithError);
+#[error("API indicated an HTTP error response: {}: {}", .0.status, .0.message)]
+pub struct HttpRouteErrorResponse(pub http::filter::RespondWithError);
 
 #[derive(Debug, thiserror::Error)]
-#[error("unknown filter type in route: {} {} {}", .0.group, .0.kind, .0.name)]
+#[error("API indicated an gRPC error response: {}: {}", .0.code, .0.message)]
+pub struct GrpcRouteErrorResponse(pub grpc::filter::RespondWithError);
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown filter type in route: {} {} {}", .0.group(), .0.kind(), .0.name())]
 pub struct HttpRouteUnknownFilter(Arc<RouteMeta>);
 
 #[derive(Debug, thiserror::Error)]
@@ -91,14 +96,14 @@ where
     type Service = AuthorizeHttp<T, N>;
 
     fn new_service(&self, target: T) -> Self::Service {
-        let client_addr = target.param();
+        let client = target.param();
         let tls = target.param();
-        let policy = target.param();
+        let policy: AllowPolicy = target.param();
+        let dst = policy.dst_addr();
         AuthorizeHttp {
             target,
-            client_addr,
-            tls,
             policy,
+            meta: Meta { client, dst, tls },
             metrics: self.metrics.clone(),
             inner: self.inner.clone(),
         }
@@ -107,17 +112,17 @@ where
 
 // === impl AuthorizeHttp ===
 
-impl<B, T, N, S> svc::Service<http::Request<B>> for AuthorizeHttp<T, N>
+impl<B, T, N, S> svc::Service<::http::Request<B>> for AuthorizeHttp<T, N>
 where
     T: Clone,
     N: svc::NewService<(RoutePermit, T), Service = S>,
-    S: svc::Service<http::Request<B>>,
+    S: svc::Service<::http::Request<B>>,
     S::Error: Into<Error>,
 {
     type Response = S::Response;
     type Error = Error;
     type Future = future::Either<
-        future::ErrInto<svc::stack::Oneshot<S, http::Request<B>>, Error>,
+        future::ErrInto<svc::stack::Oneshot<S, ::http::Request<B>>, Error>,
         future::Ready<Result<Self::Response, Error>>,
     >;
 
@@ -126,45 +131,166 @@ where
         task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
-        let dst = self.policy.dst_addr();
+    fn call(&mut self, mut req: ::http::Request<B>) -> Self::Future {
         let labels = self.policy.server_label();
 
-        let routes = self.policy.http_routes();
-        let (rt_match, route) =
-            match http_route::find(routes.as_deref().into_iter().flatten(), &req) {
-                Some(rt) => rt,
-                None => {
-                    // TODO metrics...
-                    return future::Either::Right(future::err(HttpRouteNotFound(()).into()));
+        match self.policy.routes() {
+            None => future::Either::Right({
+                // TODO metrics...
+                future::err(HttpRouteNotFound(()).into())
+            }),
+
+            Some(Routes::Http(routes)) => future::Either::Left({
+                let (rt_match, route) = match http::find(&*routes, &req) {
+                    Some(rtm) => rtm,
+                    None => {
+                        // TODO metrics...
+                        return future::Either::Right(future::err(HttpRouteNotFound(()).into()));
+                    }
+                };
+
+                let labels = RouteLabels {
+                    route: route.meta.clone(),
+                    server: labels,
+                };
+
+                let permit = match Self::authorize(
+                    &*route.authorizations,
+                    &self.meta,
+                    labels,
+                    &self.metrics,
+                ) {
+                    Ok(p) => p,
+                    Err(deny) => return future::Either::Right(future::err(deny.into())),
+                };
+
+                // TODO should we have metrics about filter usage?
+                for filter in &route.filters {
+                    match filter {
+                        http::Filter::RequestHeaders(rh) => {
+                            rh.apply(req.headers_mut());
+                        }
+
+                        http::Filter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
+                            Ok(Some(redirection)) => {
+                                return future::Either::Right(future::err(
+                                    HttpRouteRedirect(redirection).into(),
+                                ))
+                            }
+
+                            Err(invalid) => {
+                                return future::Either::Right(future::err(
+                                    HttpRouteInvalidRedirect(invalid).into(),
+                                ))
+                            }
+
+                            Ok(None) => {
+                                tracing::debug!("Ignoring irrelvant redirect");
+                            }
+                        },
+
+                        http::Filter::Error(respond) => {
+                            return future::Either::Right(future::err(
+                                HttpRouteErrorResponse(respond.clone()).into(),
+                            ));
+                        }
+
+                        http::Filter::Unknown => {
+                            let meta = route.meta.clone();
+                            return future::Either::Right(future::err(
+                                HttpRouteUnknownFilter(meta).into(),
+                            ));
+                        }
+                    }
                 }
-            };
 
-        let labels = RouteLabels {
-            route: route.meta.clone(),
-            server: labels,
-        };
+                self.inner
+                    .new_service((permit, self.target.clone()))
+                    .oneshot(req)
+                    .err_into::<Error>()
+            }),
 
-        let authz = match route
-            .authorizations
-            .iter()
-            .find(|a| super::is_authorized(a, self.client_addr, &self.tls))
+            Some(Routes::Grpc(routes)) => future::Either::Left({
+                let (rt_match, route) = match grpc::find(&*routes, &req) {
+                    Some(rtm) => rtm,
+                    None => {
+                        // TODO metrics...
+                        return future::Either::Right(future::err(HttpRouteNotFound(()).into()));
+                    }
+                };
+
+                let labels = RouteLabels {
+                    route: route.meta.clone(),
+                    server: labels,
+                };
+
+                let permit = match Self::authorize(
+                    &*route.authorizations,
+                    &self.meta,
+                    labels,
+                    &self.metrics,
+                ) {
+                    Ok(p) => p,
+                    Err(deny) => return future::Either::Right(future::err(deny.into())),
+                };
+
+                // TODO should we have metrics about filter usage?
+                for filter in &route.filters {
+                    match filter {
+                        grpc::Filter::RequestHeaders(rh) => {
+                            rh.apply(req.headers_mut());
+                        }
+
+                        grpc::Filter::Error(respond) => {
+                            return future::Either::Right(future::err(
+                                GrpcRouteErrorResponse(respond.clone()).into(),
+                            ));
+                        }
+
+                        grpc::Filter::Unknown => {
+                            let meta = route.meta.clone();
+                            return future::Either::Right(future::err(
+                                HttpRouteUnknownFilter(meta).into(),
+                            ));
+                        }
+                    }
+                }
+
+                self.inner
+                    .new_service((permit, self.target.clone()))
+                    .oneshot(req)
+                    .err_into::<Error>()
+            }),
+        }
+    }
+}
+
+impl<T, N> AuthorizeHttp<T, N> {
+    pub fn authorize<'a>(
+        authzs: impl IntoIterator<Item = &'a Authorization>,
+        meta: &Meta,
+        labels: RouteLabels,
+        metrics: &HttpAuthzMetrics,
+    ) -> Result<RoutePermit, HttpRouteUnauthorized> {
+        let authz = match authzs
+            .into_iter()
+            .find(|a| super::is_authorized(a, meta.client, &meta.tls))
         {
             Some(authz) => authz,
             None => {
                 tracing::info!(
-                    server.group = %labels.server.0.group,
-                    server.kind = %labels.server.0.kind,
-                    server.name = %labels.server.0.name,
-                    route.group = %labels.route.group,
-                    route.kind = %labels.route.kind,
-                    route.name = %labels.route.name,
-                    client.tls = ?self.tls,
-                    client.ip = %self.client_addr.ip(),
+                    server.group = %labels.server.0.group(),
+                    server.kind = %labels.server.0.kind(),
+                    server.name = %labels.server.0.name(),
+                    route.group = %labels.route.group(),
+                    route.kind = %labels.route.kind(),
+                    route.name = %labels.route.name(),
+                    client.tls = ?meta.tls,
+                    client.ip = %meta.client.ip(),
                     "Request denied",
                 );
-                self.metrics.deny(labels, dst, self.tls.clone());
-                return future::Either::Right(future::err(HttpRouteUnauthorized(()).into()));
+                metrics.deny(labels, meta.dst, meta.tls.clone());
+                return Err(HttpRouteUnauthorized(()));
             }
         };
 
@@ -174,67 +300,26 @@ where
                 authz: authz.meta.clone(),
             };
             tracing::debug!(
-                server.group = %labels.route.server.0.group,
-                server.kind = %labels.route.server.0.kind,
-                server.name = %labels.route.server.0.name,
-                route.group = %labels.route.route.group,
-                route.kind = %labels.route.route.kind,
-                route.name = %labels.route.route.name,
-                authz.group = %labels.authz.group,
-                authz.kind = %labels.authz.kind,
-                authz.name = %labels.authz.name,
-                client.tls = ?self.tls,
-                client.ip = %self.client_addr.ip(),
+                server.group = %labels.route.server.0.group(),
+                server.kind = %labels.route.server.0.kind(),
+                server.name = %labels.route.server.0.name(),
+                route.group = %labels.route.route.group(),
+                route.kind = %labels.route.route.kind(),
+                route.name = %labels.route.route.name(),
+                authz.group = %labels.authz.group(),
+                authz.kind = %labels.authz.kind(),
+                authz.name = %labels.authz.name(),
+                client.tls = ?meta.tls,
+                client.ip = %meta.client.ip(),
                 "Request authorized",
             );
-            RoutePermit { dst, labels }
+            RoutePermit {
+                dst: meta.dst,
+                labels,
+            }
         };
 
-        self.metrics.allow(&permit, self.tls.clone());
-
-        // TODO should we have metrics about filter usage?
-        for filter in &route.filters {
-            match filter {
-                HttpRouteFilter::RequestHeaders(rh) => {
-                    rh.apply(req.headers_mut());
-                }
-
-                HttpRouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
-                    Ok(Some(redirection)) => {
-                        return future::Either::Right(future::err(
-                            HttpRouteRedirect(redirection).into(),
-                        ))
-                    }
-
-                    Err(invalid) => {
-                        return future::Either::Right(future::err(
-                            HttpRouteInvalidRedirect(invalid).into(),
-                        ))
-                    }
-
-                    Ok(None) => {
-                        tracing::debug!("Ignoring irrelvant redirect");
-                    }
-                },
-
-                HttpRouteFilter::Error(respond) => {
-                    return future::Either::Right(future::err(
-                        HttpRouteErrorResponse(respond.clone()).into(),
-                    ));
-                }
-
-                HttpRouteFilter::Unknown => {
-                    let meta = route.meta.clone();
-                    return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));
-                }
-            }
-        }
-
-        future::Either::Left(
-            self.inner
-                .new_service((permit, self.target.clone()))
-                .oneshot(req)
-                .err_into::<Error>(),
-        )
+        metrics.allow(&permit, meta.tls.clone());
+        Ok(permit)
     }
 }

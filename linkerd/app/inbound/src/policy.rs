@@ -27,15 +27,17 @@ use linkerd_app_core::{
 use linkerd_cache::Cached;
 pub use linkerd_server_policy::{
     authz::Suffix,
-    http_route::filter::{InvalidRedirect, Redirection, RespondWithError},
-    Authentication, Authorization, HttpRoute, Meta, Protocol, ServerPolicy,
+    grpc::Route as GrpcRoute,
+    http::filter::{InvalidRedirect, Redirection, RespondWithError},
+    http::Route as HttpRoute,
+    Authentication, Authorization, Meta, Protocol, ServerPolicy,
 };
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Error)]
-#[error("unauthorized connection on {}/{}", server.kind, server.name)]
+#[error("unauthorized connection on {}/{}", server.kind(), server.name())]
 pub struct ServerUnauthorized {
     server: Arc<Meta>,
 }
@@ -70,6 +72,11 @@ pub struct RoutePermit {
     pub labels: RouteAuthzLabels,
 }
 
+pub enum Routes {
+    Http(Arc<[HttpRoute]>),
+    Grpc(Arc<[GrpcRoute]>),
+}
+
 // === impl DefaultPolicy ===
 
 impl From<ServerPolicy> for DefaultPolicy {
@@ -85,11 +92,7 @@ impl From<DefaultPolicy> for ServerPolicy {
             DefaultPolicy::Deny => ServerPolicy {
                 protocol: Protocol::Opaque,
                 authorizations: vec![].into(),
-                meta: Arc::new(Meta {
-                    group: "default".into(),
-                    kind: "default".into(),
-                    name: "deny".into(),
-                }),
+                meta: Arc::new(Meta::Default { name: "deny" }),
             },
         }
     }
@@ -120,18 +123,18 @@ impl AllowPolicy {
     }
 
     #[inline]
-    pub fn group(&self) -> String {
-        self.server.borrow().meta.group.to_string()
+    pub fn group(&self) -> &str {
+        self.server.borrow().meta.group()
     }
 
     #[inline]
-    pub fn kind(&self) -> String {
-        self.server.borrow().meta.kind.to_string()
+    pub fn kind(&self) -> &str {
+        self.server.borrow().meta.kind()
     }
 
     #[inline]
-    pub fn name(&self) -> String {
-        self.server.borrow().meta.name.to_string()
+    pub fn name(&self) -> &str {
+        self.server.borrow().meta.name()
     }
 
     #[inline]
@@ -146,12 +149,13 @@ impl AllowPolicy {
         }
     }
 
-    fn http_routes(&self) -> Option<Arc<[HttpRoute]>> {
+    fn routes(&self) -> Option<Routes> {
         let borrow = self.server.borrow();
         match &borrow.protocol {
             Protocol::Detect { http, .. } | Protocol::Http1(http) | Protocol::Http2(http) => {
-                Some(http.routes.clone())
+                Some(Routes::Http(http.clone()))
             }
+            Protocol::Grpc(grpc) => Some(Routes::Grpc(grpc.clone())),
             _ => None,
         }
     }

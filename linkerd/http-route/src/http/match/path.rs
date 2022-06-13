@@ -97,6 +97,36 @@ impl std::cmp::Ord for PathMatch {
     }
 }
 
+#[cfg(feature = "proto")]
+pub mod proto {
+    use super::*;
+    use linkerd2_proxy_api::http_route as api;
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum PathMatchError {
+        #[error("missing match")]
+        MissingMatch,
+
+        #[error("invalid regular expression: {0}")]
+        InvalidRegex(#[from] regex::Error),
+    }
+
+    // === impl MatchPath ===
+
+    impl TryFrom<api::PathMatch> for MatchPath {
+        type Error = PathMatchError;
+
+        fn try_from(rm: api::PathMatch) -> Result<Self, Self::Error> {
+            // TODO parse paths to validate they're valid.
+            match rm.kind.ok_or(PathMatchError::MissingMatch)? {
+                api::path_match::Kind::Exact(p) => Ok(MatchPath::Exact(p)),
+                api::path_match::Kind::Prefix(p) => Ok(MatchPath::Prefix(p)),
+                api::path_match::Kind::Regex(re) => Ok(MatchPath::Regex(re.parse()?)),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
