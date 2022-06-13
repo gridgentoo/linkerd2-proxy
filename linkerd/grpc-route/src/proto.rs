@@ -24,6 +24,7 @@ impl TryFrom<api::GrpcRouteMatch> for MatchRequest {
             .rpc
             .ok_or(RouteMatchError::Rpc(RpcMatchError::Missing))?
             .try_into()?;
+
         Ok(MatchRequest {
             rpc,
             ..MatchRequest::default()

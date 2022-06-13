@@ -20,13 +20,16 @@ pub enum InvalidServer {
     MissingProxyProtocol,
 
     #[error("invalid label: {0}")]
-    InvalidLabel(#[from] InvalidLabel),
+    Meta(#[from] InvalidMeta),
 
     #[error("invalid authorization: {0}")]
-    InvalidAuthz(#[from] InvalidAuthz),
+    Authz(#[from] InvalidAuthz),
+
+    #[error("invalid gRPC route: {0}")]
+    GrpcRoute(#[from] InvalidGrpcRoute),
 
     #[error("invalid HTTP route: {0}")]
-    InvalidHttpRoute(#[from] InvalidHttpRoute),
+    HttpRoute(#[from] InvalidHttpRoute),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,43 +44,67 @@ pub enum InvalidAuthz {
     MissingAuthentications,
 
     #[error("invalid network: {0}")]
-    InvalidNetwork(#[from] InvalidIpNetwork),
+    Network(#[from] InvalidIpNetwork),
 
     #[error("invalid label: {0}")]
-    InvalidLabel(#[from] InvalidLabel),
+    Meta(#[from] InvalidMeta),
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum InvalidLabel {
+pub enum InvalidMeta {
     #[error("missing 'name' label")]
-    MissingName,
+    Name,
+
+    #[error("missing 'kind' label")]
+    Kind,
+
+    #[error("missing 'group' label")]
+    Group,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidHttpRoute {
     #[error("invalid host match: {0}")]
-    InvalidHostMatch(#[from] HostMatchError),
+    HostMatch(#[from] HostMatchError),
 
     #[error("invalid route match: {0}")]
-    InvalidRouteMatch(#[from] RouteMatchError),
+    RouteMatch(#[from] RouteMatchError),
 
     #[error("invalid request header modifier: {0}")]
-    InvalidRequestHeaderModifier(#[from] RequestHeaderModifierError),
+    RequestHeaderModifier(#[from] RequestHeaderModifierError),
 
     #[error("invalid request redirect: {0}")]
-    InvalidRedirect(#[from] RequestRedirectError),
+    Redirect(#[from] RequestRedirectError),
 
     #[error("invalid error responder: {0}")]
-    InvalidErrorRespnder(#[from] ErrorResponderError),
+    ErrorRespnder(#[from] ErrorResponderError),
 
     #[error("invalid authorization: {0}")]
-    InvalidAuthz(#[from] InvalidAuthz),
-
-    #[error("invalid filter with an unkown kind")]
-    MissingFilter,
+    Authz(#[from] InvalidAuthz),
 
     #[error("invalid labels: {0}")]
-    InvalidLabel(#[from] InvalidLabel),
+    Meta(#[from] InvalidMeta),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidGrpcRoute {
+    #[error("invalid host match: {0}")]
+    HostMatch(#[from] HostMatchError),
+
+    #[error("invalid route match: {0}")]
+    RouteMatch(#[from] grpc_route::proto::RouteMatchError),
+
+    #[error("invalid request header modifier: {0}")]
+    RequestHeaderModifier(#[from] RequestHeaderModifierError),
+
+    #[error("invalid error responder: {0}")]
+    ErrorRespnder(#[from] grpc_route::proto::ErrorResponderError),
+
+    #[error("invalid authorization: {0}")]
+    Authz(#[from] InvalidAuthz),
+
+    #[error("invalid labels: {0}")]
+    Meta(#[from] InvalidMeta),
 }
 
 impl TryFrom<api::Server> for ServerPolicy {
@@ -114,7 +141,7 @@ impl TryFrom<api::Server> for ServerPolicy {
             }
 
             api::proxy_protocol::Kind::Grpc(api::proxy_protocol::Grpc { routes }) => {
-                let http = HttpConfig::try_new(routes)?;
+                let http = GrpcConfig::try_new(routes)?;
                 Protocol::Grpc(http)
             }
 
@@ -124,7 +151,7 @@ impl TryFrom<api::Server> for ServerPolicy {
 
         let authorizations = mk_authorizations(proto.authorizations)?;
 
-        let meta = Meta::try_new(proto.labels, "server")?;
+        let meta = Meta::try_new_with_default(proto.labels, "policy.linkerd.io", "server")?;
         Ok(ServerPolicy {
             protocol,
             authorizations,
@@ -215,7 +242,7 @@ impl TryFrom<api::Authz> for Authorization {
             }
         };
 
-        let meta = Meta::try_new(labels, "serverauthorization")?;
+        let meta = Meta::try_new_with_default(labels, "policy.linkerd.io", "serverauthorization")?;
         Ok(Authorization {
             networks,
             authentication: authn,
@@ -227,16 +254,28 @@ impl TryFrom<api::Authz> for Authorization {
 impl Meta {
     fn try_new(
         mut labels: std::collections::HashMap<String, String>,
+    ) -> Result<Arc<Meta>, InvalidMeta> {
+        let group = labels.remove("group").ok_or(InvalidMeta::Group)?;
+        let kind = labels.remove("kind").ok_or(InvalidMeta::Kind)?;
+        let name = labels.remove("name").ok_or(InvalidMeta::Name)?;
+        Ok(Arc::new(Meta {
+            group: group.into(),
+            kind: kind.into(),
+            name: name.into(),
+        }))
+    }
+
+    fn try_new_with_default(
+        mut labels: std::collections::HashMap<String, String>,
+        default_group: &'static str,
         default_kind: &'static str,
-    ) -> Result<Arc<Meta>, InvalidLabel> {
-        let name = labels.remove("name").ok_or(InvalidLabel::MissingName)?;
+    ) -> Result<Arc<Meta>, InvalidMeta> {
+        let name = labels.remove("name").ok_or(InvalidMeta::Name)?;
 
         let group = labels
             .remove("group")
             .map(Cow::Owned)
-            // If no group is specified, we leave it blank. This is to avoid setting
-            // a group when using synthetic kinds like "default".
-            .unwrap_or(Cow::Borrowed(""));
+            .unwrap_or(Cow::Borrowed(default_group));
 
         if let Some(kind) = labels.remove("kind") {
             return Ok(Arc::new(Meta {
@@ -289,7 +328,7 @@ impl HttpConfig {
             .collect::<Result<Vec<_>, HostMatchError>>()?;
 
         let authzs = mk_authorizations(authorizations)?;
-        let meta = Meta::try_new(labels, "httproute")?;
+        let meta = Meta::try_new(labels)?;
         let rules = rules
             .into_iter()
             .map(|r| Self::try_rule(authzs.clone(), meta.clone(), r))
@@ -317,11 +356,13 @@ impl HttpConfig {
                 .into_iter()
                 .map(|f| match f.kind {
                     Some(filter::Kind::RequestHeaderModifier(rhm)) => {
-                        Ok(RouteFilter::RequestHeaders(rhm.try_into()?))
+                        Ok(HttpRouteFilter::RequestHeaders(rhm.try_into()?))
                     }
-                    Some(filter::Kind::Redirect(rr)) => Ok(RouteFilter::Redirect(rr.try_into()?)),
-                    Some(filter::Kind::Error(rsp)) => Ok(RouteFilter::Error(rsp.try_into()?)),
-                    None => Ok(RouteFilter::Unknown),
+                    Some(filter::Kind::Redirect(rr)) => {
+                        Ok(HttpRouteFilter::Redirect(rr.try_into()?))
+                    }
+                    Some(filter::Kind::Error(rsp)) => Ok(HttpRouteFilter::Error(rsp.try_into()?)),
+                    None => Ok(HttpRouteFilter::Unknown),
                 })
                 .collect::<Result<Vec<_>, InvalidHttpRoute>>()?;
 
@@ -333,5 +374,74 @@ impl HttpConfig {
         };
 
         Ok(HttpRule { matches, policy })
+    }
+}
+
+impl GrpcConfig {
+    fn try_new(routes: Vec<api::GrpcRoute>) -> Result<Self, InvalidGrpcRoute> {
+        let routes = routes
+            .into_iter()
+            .map(Self::try_route)
+            .collect::<Result<Arc<[GrpcRoute]>, InvalidGrpcRoute>>()?;
+        Ok(GrpcConfig { routes })
+    }
+
+    fn try_route(proto: api::GrpcRoute) -> Result<GrpcRoute, InvalidGrpcRoute> {
+        let api::GrpcRoute {
+            hosts,
+            authorizations,
+            rules,
+            labels,
+        } = proto;
+
+        let hosts = hosts
+            .into_iter()
+            .map(MatchHost::try_from)
+            .collect::<Result<Vec<_>, HostMatchError>>()?;
+
+        let authzs = mk_authorizations(authorizations)?;
+        let meta = Meta::try_new(labels)?;
+        let rules = rules
+            .into_iter()
+            .map(|r| Self::try_rule(authzs.clone(), meta.clone(), r))
+            .collect::<Result<Vec<_>, InvalidGrpcRoute>>()?;
+
+        Ok(GrpcRoute { hosts, rules })
+    }
+
+    fn try_rule(
+        authorizations: Arc<[Authorization]>,
+        meta: Arc<Meta>,
+        proto: api::grpc_route::Rule,
+    ) -> Result<GrpcRule, InvalidGrpcRoute> {
+        let matches = proto
+            .matches
+            .into_iter()
+            .map(grpc_route::MatchRequest::try_from)
+            .collect::<Result<Vec<_>, grpc_route::proto::RouteMatchError>>()?;
+
+        let policy = {
+            use api::grpc_route::filter;
+
+            let filters = proto
+                .filters
+                .into_iter()
+                .map(|f| match f.kind {
+                    Some(filter::Kind::Error(rsp)) => Ok(GrpcRouteFilter::Error(rsp.try_into()?)),
+                    Some(filter::Kind::RequestHeaderModifier(rhm)) => {
+                        Ok(GrpcRouteFilter::RequestHeaders(rhm.try_into()?))
+                    }
+                    None => Ok(GrpcRouteFilter::Unknown),
+                })
+                .collect::<Result<Vec<_>, InvalidGrpcRoute>>()?;
+
+            RoutePolicy {
+                authorizations,
+                filters,
+                meta,
+            }
+        };
+
+        Ok(GrpcRule { matches, policy })
     }
 }

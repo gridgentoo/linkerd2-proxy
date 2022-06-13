@@ -17,7 +17,7 @@ use linkerd_server_policy::{
         self,
         filter::{InvalidRedirect, Redirection, RespondWithError},
     },
-    Meta as RouteMeta, RouteFilter,
+    HttpRouteFilter, Meta as RouteMeta,
 };
 use std::{sync::Arc, task};
 
@@ -195,11 +195,11 @@ where
         // TODO should we have metrics about filter usage?
         for filter in &route.filters {
             match filter {
-                RouteFilter::RequestHeaders(rh) => {
+                HttpRouteFilter::RequestHeaders(rh) => {
                     rh.apply(req.headers_mut());
                 }
 
-                RouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
+                HttpRouteFilter::Redirect(redir) => match redir.apply(req.uri(), &rt_match) {
                     Ok(Some(redirection)) => {
                         return future::Either::Right(future::err(
                             HttpRouteRedirect(redirection).into(),
@@ -217,20 +217,24 @@ where
                     }
                 },
 
-                RouteFilter::Error(respond) => {
+                HttpRouteFilter::Error(respond) => {
                     return future::Either::Right(future::err(
                         HttpRouteErrorResponse(respond.clone()).into(),
                     ));
                 }
 
-                RouteFilter::Unknown => {
+                HttpRouteFilter::Unknown => {
                     let meta = route.meta.clone();
                     return future::Either::Right(future::err(HttpRouteUnknownFilter(meta).into()));
                 }
             }
         }
 
-        let svc = self.inner.new_service((permit, self.target.clone()));
-        future::Either::Left(svc.oneshot(req).err_into::<Error>())
+        future::Either::Left(
+            self.inner
+                .new_service((permit, self.target.clone()))
+                .oneshot(req)
+                .err_into::<Error>(),
+        )
     }
 }

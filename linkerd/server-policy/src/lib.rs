@@ -6,6 +6,7 @@ pub mod authz;
 mod proto;
 
 pub use self::authz::{Authentication, Authorization};
+pub use linkerd_grpc_route as grpc_route;
 pub use linkerd_http_route as http_route;
 use std::{borrow::Cow, hash::Hash, sync::Arc, time};
 
@@ -24,7 +25,7 @@ pub enum Protocol {
     },
     Http1(HttpConfig),
     Http2(HttpConfig),
-    Grpc(HttpConfig),
+    Grpc(GrpcConfig),
     Opaque,
     Tls,
 }
@@ -37,34 +38,26 @@ pub struct Meta {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RoutePolicy<T> {
+    pub meta: Arc<Meta>,
+    pub authorizations: Arc<[Authorization]>,
+    pub filters: Vec<T>,
+}
+
+pub type HttpRoute = http_route::HttpRoute<RoutePolicy<HttpRouteFilter>>;
+pub type HttpRule = http_route::HttpRule<RoutePolicy<HttpRouteFilter>>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HttpConfig {
     pub routes: Arc<[HttpRoute]>,
 }
 
-pub type HttpRoute = http_route::HttpRoute<RoutePolicy>;
-pub type HttpRule = http_route::HttpRule<RoutePolicy>;
+pub type GrpcRoute = grpc_route::GrpcRoute<RoutePolicy<GrpcRouteFilter>>;
+pub type GrpcRule = grpc_route::GrpcRule<RoutePolicy<GrpcRouteFilter>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RoutePolicy {
-    pub authorizations: Arc<[Authorization]>,
-    pub filters: Vec<RouteFilter>,
-    pub meta: Arc<Meta>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RouteFilter {
-    RequestHeaders(http_route::filter::ModifyRequestHeader),
-
-    Redirect(http_route::filter::RedirectRequest),
-
-    Error(http_route::filter::RespondWithError),
-
-    /// Indicates that the filter kind is unknown to the proxy (e.g., because
-    /// the controller is on a new version of the protobuf).
-    ///
-    /// Route handlers must be careful about this situation, as it may not be
-    /// appropriate for a proxy to skip filtering logic.
-    Unknown,
+pub struct GrpcConfig {
+    pub routes: Arc<[GrpcRoute]>,
 }
 
 // === impl HttpConfig ===
@@ -75,4 +68,48 @@ impl Default for HttpConfig {
             routes: vec![].into(),
         }
     }
+}
+
+// === impl HttpRouteFilter ===
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum HttpRouteFilter {
+    Error(http_route::filter::RespondWithError),
+
+    RequestHeaders(http_route::filter::ModifyRequestHeader),
+
+    Redirect(http_route::filter::RedirectRequest),
+
+    /// Indicates that the filter kind is unknown to the proxy (e.g., because
+    /// the controller is on a new version of the protobuf).
+    ///
+    /// Route handlers must be careful about this situation, as it may not be
+    /// appropriate for a proxy to skip filtering logic.
+    Unknown,
+}
+
+// === impl GrpcConfig ===
+
+impl Default for GrpcConfig {
+    fn default() -> Self {
+        Self {
+            routes: vec![].into(),
+        }
+    }
+}
+
+// === impl GrpcRouteFilter ===
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GrpcRouteFilter {
+    Error(grpc_route::filter::RespondWithError),
+
+    RequestHeaders(http_route::filter::ModifyRequestHeader),
+
+    /// Indicates that the filter kind is unknown to the proxy (e.g., because
+    /// the controller is on a new version of the protobuf).
+    ///
+    /// Route handlers must be careful about this situation, as it may not be
+    /// appropriate for a proxy to skip filtering logic.
+    Unknown,
 }

@@ -1492,6 +1492,7 @@ version = "0.1.0"
 dependencies = [
  "http",
  "ipnet",
+ "linkerd-grpc-route",
  "linkerd-http-route",
  "linkerd2-proxy-api",
  "quickcheck",
@@ -1707,7 +1708,7 @@ dependencies = [
 [[package]]
 name = "linkerd2-proxy-api"
 version = "0.5.0"
-source = "git+https://github.com/linkerd/linkerd2-proxy-api?branch=ver/rautz#ad6e9eb8da43630707de357c0c1e8af7c3c37a17"
+source = "git+https://github.com/linkerd/linkerd2-proxy-api?branch=ver/rautz#05368f22a3ec3943c0619607de74363e3794458d"
 dependencies = [
  "h2",
  "http",
