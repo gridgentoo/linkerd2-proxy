@@ -34,14 +34,14 @@ pub struct NewHttpPolicy<N> {
 #[derive(Clone, Debug)]
 pub struct AuthorizeHttp<T, N> {
     target: T,
-    meta: Meta,
+    meta: ConnectionMeta,
     policy: AllowPolicy,
     metrics: HttpAuthzMetrics,
     inner: N,
 }
 
 #[derive(Clone, Debug)]
-struct Meta {
+struct ConnectionMeta {
     dst: OrigDstAddr,
     client: Remote<ClientAddr>,
     tls: tls::ConditionalServerTls,
@@ -103,7 +103,7 @@ where
         AuthorizeHttp {
             target,
             policy,
-            meta: Meta { client, dst, tls },
+            meta: ConnectionMeta { client, dst, tls },
             metrics: self.metrics.clone(),
             inner: self.inner.clone(),
         }
@@ -268,7 +268,7 @@ where
 impl<T, N> AuthorizeHttp<T, N> {
     fn authorize<'a>(
         authzs: impl IntoIterator<Item = &'a Authorization>,
-        meta: &Meta,
+        meta: &ConnectionMeta,
         labels: RouteLabels,
         metrics: &HttpAuthzMetrics,
     ) -> Result<RoutePermit, HttpRouteUnauthorized> {
