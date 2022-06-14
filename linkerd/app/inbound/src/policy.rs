@@ -92,7 +92,7 @@ impl From<DefaultPolicy> for ServerPolicy {
             DefaultPolicy::Deny => ServerPolicy {
                 protocol: Protocol::Opaque,
                 authorizations: vec![].into(),
-                meta: Arc::new(Meta::Default { name: "deny" }),
+                meta: Meta::new_default("deny"),
             },
         }
     }
@@ -123,18 +123,8 @@ impl AllowPolicy {
     }
 
     #[inline]
-    pub fn group(&self) -> &str {
-        self.server.borrow().meta.group()
-    }
-
-    #[inline]
-    pub fn kind(&self) -> &str {
-        self.server.borrow().meta.kind()
-    }
-
-    #[inline]
-    pub fn name(&self) -> &str {
-        self.server.borrow().meta.name()
+    pub fn meta(&self) -> Arc<Meta> {
+        self.server.borrow().meta.clone()
     }
 
     #[inline]

@@ -5,7 +5,7 @@ pub struct RespondWithError {
 }
 
 #[cfg(feature = "proto")]
-mod proto {
+pub mod proto {
     use super::*;
     use linkerd2_proxy_api::http_route as api;
 

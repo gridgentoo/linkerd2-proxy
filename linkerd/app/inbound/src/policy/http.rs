@@ -211,8 +211,8 @@ where
             }),
 
             Some(Routes::Grpc(routes)) => future::Either::Left({
-                let (rt_match, route) = match grpc::find(&*routes, &req) {
-                    Some(rtm) => rtm,
+                let route = match grpc::find(&*routes, &req) {
+                    Some((_, r)) => r,
                     None => {
                         // TODO metrics...
                         return future::Either::Right(future::err(HttpRouteNotFound(()).into()));
@@ -266,7 +266,7 @@ where
 }
 
 impl<T, N> AuthorizeHttp<T, N> {
-    pub fn authorize<'a>(
+    fn authorize<'a>(
         authzs: impl IntoIterator<Item = &'a Authorization>,
         meta: &Meta,
         labels: RouteLabels,

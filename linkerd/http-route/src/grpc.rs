@@ -1,5 +1,5 @@
 pub mod filter;
-mod r#match;
+pub mod r#match;
 
 pub use self::r#match::MatchRoute;
 

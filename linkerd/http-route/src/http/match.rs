@@ -1,7 +1,7 @@
-mod header;
-mod host;
-mod path;
-mod query_param;
+pub mod header;
+pub mod host;
+pub mod path;
+pub mod query_param;
 
 pub(crate) use self::path::PathMatch;
 pub use self::{
@@ -106,9 +106,9 @@ impl std::cmp::Ord for RequestMatch {
 }
 
 #[cfg(feature = "proto")]
-mod proto {
+pub mod proto {
     use super::*;
-    use linkerd2_proxy_api::http_route as api;
+    use linkerd2_proxy_api::{http_route as api, http_types};
 
     #[derive(Debug, thiserror::Error)]
     pub enum RouteMatchError {
@@ -120,6 +120,9 @@ mod proto {
 
         #[error("invalid query param match: {0}")]
         QueryParam(#[from] query_param::proto::QueryParamMatchError),
+
+        #[error("invalid method match: {0}")]
+        Method(#[from] http_types::InvalidMethod),
     }
 
     // === impl MatchRequest ===
@@ -132,9 +135,26 @@ mod proto {
                 None => None,
                 Some(pm) => Some(pm.try_into()?),
             };
+            let headers = rm
+                .headers
+                .into_iter()
+                .map(|h| h.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+            let query_params = rm
+                .query_params
+                .into_iter()
+                .map(|h| h.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+            let method = match rm.method.map(http::Method::try_from) {
+                None => None,
+                Some(Ok(m)) => Some(m),
+                Some(Err(e)) => return Err(e.into()),
+            };
             Ok(MatchRequest {
                 path,
-                ..MatchRequest::default()
+                headers,
+                query_params,
+                method,
             })
         }
     }

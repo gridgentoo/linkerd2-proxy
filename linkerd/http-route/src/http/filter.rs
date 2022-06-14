@@ -1,6 +1,6 @@
-mod error_respond;
-mod modify_request_header;
-mod redirect;
+pub mod error_respond;
+pub mod modify_request_header;
+pub mod redirect;
 
 pub use self::{
     error_respond::RespondWithError,

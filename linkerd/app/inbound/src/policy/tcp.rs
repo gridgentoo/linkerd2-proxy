@@ -80,10 +80,11 @@ where
                 })
             }
             Err(deny) => {
+                let meta = policy.meta();
                 tracing::info!(
-                    server.group = %policy.group(),
-                    server.kind = %policy.kind(),
-                    server.name = %policy.name(),
+                    server.group = %meta.group(),
+                    server.kind = %meta.kind(),
+                    server.name = %meta.name(),
                     ?tls, %client,
                     "Connection denied"
                 );
@@ -148,10 +149,11 @@ where
                     res = &mut call => return res.map_err(Into::into),
                     _ = policy.changed() => {
                         if let Err(denied) = policy.check_authorized(client, &tls) {
+                            let meta = policy.meta();
                             tracing::info!(
-                                server.group = %policy.group(),
-                                server.kind = %policy.kind(),
-                                server.name = %policy.name(),
+                                server.group = %meta.group(),
+                                server.kind = %meta.kind(),
+                                server.name = %meta.name(),
                                 ?tls,
                                 %client,
                                 "Connection terminated due to policy change",

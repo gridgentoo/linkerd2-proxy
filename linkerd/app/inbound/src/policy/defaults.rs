@@ -2,7 +2,7 @@ use linkerd_app_core::{IpNet, Ipv4Net, Ipv6Net};
 use linkerd_server_policy::{
     authz::Suffix, Authentication, Authorization, Meta, Protocol, ServerPolicy,
 };
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 pub fn all_authenticated(timeout: Duration) -> ServerPolicy {
     mk("all-authenticated", all_nets(), authenticated(), timeout)
@@ -70,9 +70,9 @@ fn mk(
         authorizations: vec![Authorization {
             networks: nets.into_iter().map(Into::into).collect(),
             authentication,
-            meta: Arc::new(Meta::Default { name }),
+            meta: Meta::new_default(name),
         }]
         .into(),
-        meta: Arc::new(Meta::Default { name }),
+        meta: Meta::new_default(name),
     }
 }
