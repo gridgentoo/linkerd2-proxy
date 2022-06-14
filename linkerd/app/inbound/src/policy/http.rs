@@ -23,8 +23,6 @@ use std::{sync::Arc, task};
 ///
 /// The inner service is created for each request, so it's expected that this is
 /// combined with caching.
-///
-/// TODO this needs a better name to reflect its not solely about authorization.
 #[derive(Clone, Debug)]
 pub struct NewHttpPolicy<N> {
     metrics: HttpAuthzMetrics,
@@ -32,7 +30,7 @@ pub struct NewHttpPolicy<N> {
 }
 
 #[derive(Clone, Debug)]
-pub struct AuthorizeHttp<T, N> {
+pub struct HttpPolicyService<T, N> {
     target: T,
     meta: ConnectionMeta,
     policy: AllowPolicy,
@@ -93,14 +91,14 @@ where
         + svc::Param<tls::ConditionalServerTls>,
     N: Clone,
 {
-    type Service = AuthorizeHttp<T, N>;
+    type Service = HttpPolicyService<T, N>;
 
     fn new_service(&self, target: T) -> Self::Service {
         let client = target.param();
         let tls = target.param();
         let policy: AllowPolicy = target.param();
         let dst = policy.dst_addr();
-        AuthorizeHttp {
+        HttpPolicyService {
             target,
             policy,
             meta: ConnectionMeta { client, dst, tls },
@@ -110,9 +108,9 @@ where
     }
 }
 
-// === impl AuthorizeHttp ===
+// === impl HttpPolicyService ===
 
-impl<B, T, N, S> svc::Service<::http::Request<B>> for AuthorizeHttp<T, N>
+impl<B, T, N, S> svc::Service<::http::Request<B>> for HttpPolicyService<T, N>
 where
     T: Clone,
     N: svc::NewService<(RoutePermit, T), Service = S>,
@@ -265,7 +263,7 @@ where
     }
 }
 
-impl<T, N> AuthorizeHttp<T, N> {
+impl<T, N> HttpPolicyService<T, N> {
     fn authorize<'a>(
         authzs: impl IntoIterator<Item = &'a Authorization>,
         meta: &ConnectionMeta,
