@@ -78,8 +78,6 @@ impl Meta {
 
 #[cfg(feature = "proto")]
 pub mod proto {
-    use crate::grpc::proto::InvalidGrpcRoute;
-
     use super::*;
     use linkerd2_proxy_api::inbound as api;
     use std::time::Duration;
@@ -168,7 +166,7 @@ pub mod proto {
                     let grpc = routes
                         .into_iter()
                         .map(grpc::proto::try_route)
-                        .collect::<Result<Arc<[_]>, InvalidGrpcRoute>>()?;
+                        .collect::<Result<Arc<[_]>, _>>()?;
                     Protocol::Grpc(grpc)
                 }
 
