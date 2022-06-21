@@ -4,8 +4,7 @@
 # Configuration
 #
 
-export RUST_BACKTRACE := "short"
-export RUSTFLAGS := env_var_or_default("RUSTFLAGS", "-D warnings -A deprecated")
+export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "short")
 export PROTOC_NO_VENDOR := "1"
 
 export DOCKER_BUILDKIT := "1"
@@ -66,6 +65,16 @@ _features := if features == "all" {
         "--no-default-features --features=" + features
     } else { "" }
 
+
+# Use nextest if it's available.
+_test := ```
+        if command -v cargo-nextest >/dev/null 2>&1; then
+            echo "nextest run"
+        else
+            echo "test"
+        fi
+    ```
+
 #
 # Recipes
 #
@@ -99,67 +108,45 @@ shellcheck:
     echo shellcheck $files
     shellcheck $files
 
-check *flags: fmt
+check *flags:
     {{ cargo }} check --workspace --all-targets --frozen {{ flags }} {{ _fmt }}
 
-check-crate crate *flags: fmt
+check-crate crate *flags:
     {{ cargo }} check --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-clippy *flags: fmt
+clippy *flags:
     {{ cargo }} clippy --workspace --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-clippy-crate crate *flags: fmt
+clippy-crate crate *flags:
     {{ cargo }} clippy --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-clippy-dir dir *flags: fmt
+clippy-dir dir *flags:
     cd {{ dir }} && {{ cargo }} clippy --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-doc *flags: fmt
+doc *flags:
     {{ cargo }} doc --no-deps --workspace --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
-doc-crate crate *flags: fmt
+doc-crate crate *flags:
     {{ cargo }} doc --package={{ crate }} --all-targets --frozen {{ _features }} {{ flags }} {{ _fmt }}
 
 # Run all tests
-test *flags: fmt
-    #!/usr/bin/env bash
-    if command -v cargo-nextest >/dev/null 2>&1; then
-        {{ cargo }} nextest run --workspace --frozen {{ _features }} \
-            {{ if build_type == "release" { "--release" } else { "" } }} \
-            {{ flags }}
-    else
-        {{ cargo }} test --workspace --frozen {{ _features }} \
-            {{ if build_type == "release" { "--release" } else { "" } }} \
-            {{ flags }}
-    fi
+test *flags:
+    {{ cargo }} {{ _test }} --workspace --frozen {{ _features }} \
+        {{ if build_type == "release" { "--release" } else { "" } }} \
+        {{ flags }}
 
-test-crate crate *flags: fmt
-    #!/usr/bin/env bash
-    if command -v cargo-nextest >/dev/null 2>&1; then
-        {{ cargo }} nextest run --package={{ crate }} --frozen {{ _features }} \
-            {{ if build_type == "release" { "--release" } else { "" } }} \
-            {{ flags }}
-    else
-        {{ cargo }} test --package={{ crate }} --frozen {{ _features }} \
-            {{ if build_type == "release" { "--release" } else { "" } }} \
-            {{ flags }}
-    fi
+test-crate crate *flags:
+    {{ cargo }} {{ _test }} --package={{ crate }} --frozen {{ _features }} \
+        {{ if build_type == "release" { "--release" } else { "" } }} \
+        {{ flags }}
 
-test-dir dir *flags: fmt
-    #!/usr/bin/env bash
-    cd {{ dir }}
-    if command -v cargo-nextest >/dev/null 2>&1; then
-        {{ cargo }} nextest run --frozen {{ _features }} \
+test-dir dir *flags:
+    cd {{ dir }} && {{ cargo }} {{ _test }} --frozen {{ _features }} \
             {{ if build_type == "release" { "--release" } else { "" } }} \
             {{ flags }}
-    else
-        {{ cargo }} test --frozen {{ _features }} \
-            {{ if build_type == "release" { "--release" } else { "" } }} \
-            {{ flags }}
-    fi
 
 # Build the proxy
-build: fmt
+build:
     {{ cargo }} build --frozen --package=linkerd2-proxy --target={{ cargo_target }} \
         {{ if build_type == "release" { "--release" } else { "" } }} \
         {{ _features }} {{ _fmt }}
