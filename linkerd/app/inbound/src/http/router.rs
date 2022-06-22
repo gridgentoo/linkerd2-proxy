@@ -16,7 +16,7 @@ use tracing::{debug, debug_span};
 pub struct Http {
     addr: Remote<ServerAddr>,
     settings: http::client::Settings,
-    permit: policy::RoutePermit,
+    permit: policy::HttpRoutePermit,
 }
 
 /// Builds `Logical` targets for each HTTP request.
@@ -24,7 +24,7 @@ pub struct Http {
 struct LogicalPerRequest {
     server: Remote<ServerAddr>,
     tls: tls::ConditionalServerTls,
-    permit: policy::RoutePermit,
+    permit: policy::HttpRoutePermit,
     labels: tap::Labels,
 }
 
@@ -36,7 +36,7 @@ struct Logical {
     addr: Remote<ServerAddr>,
     http: http::Version,
     tls: tls::ConditionalServerTls,
-    permit: policy::RoutePermit,
+    permit: policy::HttpRoutePermit,
     labels: tap::Labels,
 }
 
@@ -246,59 +246,32 @@ impl<C> Inbound<C> {
 
 // === impl LogicalPerRequest ===
 
-impl<T> From<(policy::RoutePermit, T)> for LogicalPerRequest
+impl<T> From<(policy::HttpRoutePermit, T)> for LogicalPerRequest
 where
     T: Param<Remote<ServerAddr>>,
     T: Param<tls::ConditionalServerTls>,
 {
-    fn from((permit, t): (policy::RoutePermit, T)) -> Self {
-        let labels = vec![
-            (
-                "srv_group".to_string(),
-                permit.labels.route.server.0.group().to_string(),
-            ),
-            (
-                "srv_kind".to_string(),
-                permit.labels.route.server.0.kind().to_string(),
-            ),
-            (
-                "srv_name".to_string(),
-                permit.labels.route.server.0.name().to_string(),
-            ),
-            (
-                "route_group".to_string(),
-                permit.labels.route.route.group().to_string(),
-            ),
-            (
-                "route_kind".to_string(),
-                permit.labels.route.route.kind().to_string(),
-            ),
-            (
-                "route_name".to_string(),
-                permit.labels.route.route.name().to_string(),
-            ),
-            (
-                "authz_group".to_string(),
-                permit.labels.authz.group().to_string(),
-            ),
-            (
-                "authz_kind".to_string(),
-                permit.labels.authz.kind().to_string(),
-            ),
-            (
-                "authz_name".to_string(),
-                permit.labels.authz.name().to_string(),
-            ),
-        ];
+    fn from((permit, t): (policy::HttpRoutePermit, T)) -> Self {
+        let labels = [
+            ("srv", &permit.labels.route.server.0),
+            ("route", &permit.labels.route.route),
+            ("authz", &permit.labels.authz),
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| {
+            [
+                (format!("{k}_group"), v.group().to_string()),
+                (format!("{k}_kind"), v.kind().to_string()),
+                (format!("{k}_name"), v.name().to_string()),
+            ]
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
         Self {
             server: t.param(),
             tls: t.param(),
             permit,
-            labels: labels
-                .into_iter()
-                .collect::<std::collections::BTreeMap<_, _>>()
-                .into(),
+            labels: labels.into(),
         }
     }
 }

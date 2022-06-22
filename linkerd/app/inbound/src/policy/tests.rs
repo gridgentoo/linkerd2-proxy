@@ -1,7 +1,7 @@
 use super::*;
 use linkerd_app_core::{proxy::http, Error};
 use linkerd_server_policy::{authz::Suffix, Authentication, Authorization, Protocol, ServerPolicy};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct MockSvc;
@@ -130,8 +130,8 @@ async fn authenticated_suffix() {
         protocol: Protocol::Opaque,
         authorizations: vec![Authorization {
             authentication: Authentication::TlsAuthenticated {
+                identities: BTreeSet::default(),
                 suffixes: vec![Suffix::from(vec!["cluster".into(), "local".into()])],
-                identities: Default::default(),
             },
             networks: vec!["192.0.2.0/24".parse().unwrap()],
             meta: Arc::new(Meta::Resource {

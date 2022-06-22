@@ -1,9 +1,7 @@
-#![allow(dead_code)] // FIXME
-
 use super::Routes;
 use crate::{
     metrics::authz::HttpAuthzMetrics,
-    policy::{AllowPolicy, RoutePermit},
+    policy::{AllowPolicy, HttpRoutePermit},
 };
 use futures::{future, TryFutureExt};
 use linkerd_app_core::{
@@ -113,7 +111,7 @@ where
 impl<B, T, N, S> svc::Service<::http::Request<B>> for HttpPolicyService<T, N>
 where
     T: Clone,
-    N: svc::NewService<(RoutePermit, T), Service = S>,
+    N: svc::NewService<(HttpRoutePermit, T), Service = S>,
     S: svc::Service<::http::Request<B>>,
     S::Error: Into<Error>,
 {
@@ -269,7 +267,7 @@ impl<T, N> HttpPolicyService<T, N> {
         meta: &ConnectionMeta,
         labels: RouteLabels,
         metrics: &HttpAuthzMetrics,
-    ) -> Result<RoutePermit, HttpRouteUnauthorized> {
+    ) -> Result<HttpRoutePermit, HttpRouteUnauthorized> {
         let authz = match authzs
             .into_iter()
             .find(|a| super::is_authorized(a, meta.client, &meta.tls))
@@ -311,7 +309,7 @@ impl<T, N> HttpPolicyService<T, N> {
                 client.ip = %meta.client.ip(),
                 "Request authorized",
             );
-            RoutePermit {
+            HttpRoutePermit {
                 dst: meta.dst,
                 labels,
             }

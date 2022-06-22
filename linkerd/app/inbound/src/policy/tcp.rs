@@ -1,5 +1,7 @@
-use super::{AllowPolicy, ServerPermit, ServerUnauthorized};
-use crate::metrics::authz::TcpAuthzMetrics;
+use crate::{
+    metrics::authz::TcpAuthzMetrics,
+    policy::{AllowPolicy, ServerPermit, ServerUnauthorized},
+};
 use futures::future;
 use linkerd_app_core::{
     svc, tls,
@@ -8,9 +10,9 @@ use linkerd_app_core::{
 };
 use std::{future::Future, pin::Pin, task};
 
-/// A middleware that enforces policy on each TCP connection. When connection is authorized, we
-/// continue to monitor the policy for changes and, if the connection is no longer authorized, it is
-/// dropped/closed.
+/// A middleware that enforces policy on each TCP connection. When connection is
+/// authorized, we continue to monitor the policy for changes and, if the
+/// connection is no longer authorized, it is dropped/closed.
 ///
 /// Metrics are reported to the `TcpAuthzMetrics` struct.
 #[derive(Clone, Debug)]
@@ -20,7 +22,7 @@ pub struct NewTcpPolicy<N> {
 }
 
 #[derive(Clone, Debug)]
-pub enum AuthorizeTcp<S> {
+pub enum TcpPolicy<S> {
     Authorized(Authorized<S>),
     Unauthorized(ServerUnauthorized),
 }
@@ -54,7 +56,7 @@ where
         + svc::Param<tls::ConditionalServerTls>,
     N: svc::NewService<(ServerPermit, T)>,
 {
-    type Service = AuthorizeTcp<N::Service>;
+    type Service = TcpPolicy<N::Service>;
 
     fn new_service(&self, target: T) -> Self::Service {
         let client = target.param();
@@ -71,7 +73,7 @@ where
                 self.metrics.allow(&permit, tls.clone());
 
                 let inner = self.inner.new_service((permit, target));
-                AuthorizeTcp::Authorized(Authorized {
+                TcpPolicy::Authorized(Authorized {
                     inner,
                     policy,
                     client,
@@ -89,15 +91,15 @@ where
                     "Connection denied"
                 );
                 self.metrics.deny(&policy, tls);
-                AuthorizeTcp::Unauthorized(deny)
+                TcpPolicy::Unauthorized(deny)
             }
         }
     }
 }
 
-// === impl AuthorizeTcp ===
+// === impl TcpPolicy ===
 
-impl<I, S> svc::Service<I> for AuthorizeTcp<S>
+impl<I, S> svc::Service<I> for TcpPolicy<S>
 where
     S: svc::Service<I, Response = ()>,
     S::Error: Into<Error>,
