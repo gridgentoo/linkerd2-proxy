@@ -1,3 +1,6 @@
+Оригинальный репозитарий.    
+https://github.com/linkerd/linkerd2-proxy   
+
 # The Linkerd Proxy
 
 ![linkerd2][logo]
